@@ -5,11 +5,13 @@ import android.net.ConnectivityManager
 import android.util.Log
 import com.example.agenticcar.di.ApplicationScope
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,6 +19,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runInterruptible
 import java.io.File
+import java.io.IOException
 import java.net.Inet6Address
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -68,7 +71,17 @@ class CloudflareTunnel @Inject constructor(
             return
         }
         running = config
-        job = scope.launch(Dispatchers.IO) { superviseProcess(config, originPort) }
+        job = scope.launch(Dispatchers.IO) {
+            try {
+                superviseProcess(config, originPort)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // This scope is process-wide: an escaping exception would crash the whole app.
+                Log.e(TAG, "Tunnel supervisor failed", e)
+                _state.value = TunnelState.Error(e.message ?: e::class.simpleName.orEmpty())
+            }
+        }
     }
 
     @Synchronized
@@ -102,11 +115,16 @@ class CloudflareTunnel @Inject constructor(
                         }
                     }
                 }
+            } catch (e: IOException) {
+                // stop() destroys the process, and Android then closes its output pipe under the
+                // blocked read ("read interrupted by close() on another thread"): the process is gone.
             } finally {
                 // Runs on cancellation too: never leave an orphaned cloudflared behind.
                 process.destroy()
                 if (!process.waitFor(2, TimeUnit.SECONDS)) process.destroyForcibly()
             }
+            // A deliberate stop ends here, without reporting an error or restarting.
+            currentCoroutineContext().ensureActive()
             val exit = process.waitFor()
             Log.w(TAG, "cloudflared exited ($exit): $lastLine")
             _state.value = TunnelState.Error(lastLine.substringAfter(" ERR ").ifBlank { "cloudflared exited ($exit)" }.take(200))

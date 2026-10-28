@@ -8,6 +8,8 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import android.util.Log
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -34,5 +36,9 @@ object AppModule {
     @Provides
     @Singleton
     @ApplicationScope
-    fun provideApplicationScope(): CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    fun provideApplicationScope(): CoroutineScope = CoroutineScope(
+        SupervisorJob() + Dispatchers.Default +
+            // Last line of defence: a failed background job is logged instead of killing the process.
+            CoroutineExceptionHandler { _, e -> Log.e("ApplicationScope", "Uncaught exception in background job", e) },
+    )
 }
