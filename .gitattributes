@@ -1,0 +1,7 @@
+# Normalise line endings in the repository; check out with the platform's default.
+* text=auto
+# Shell scripts must keep LF or they fail on macOS/Linux.
+gradlew text eol=lf
+*.sh text eol=lf
+# Windows batch files need CRLF.
+*.bat text eol=crlf

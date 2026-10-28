@@ -1,0 +1,30 @@
+# Add project specific R8 rules here.
+# AGP will combine all keep rule files in src/main/keepRules to pass to R8
+#
+# For more details, see
+#   https://d.android.com/r/tools/r8/keep-rules
+
+# Netty loads transports and channel implementations reflectively.
+-keep class io.netty.** { *; }
+-keepclassmembers class io.ktor.** { volatile <fields>; }
+
+# Optional Netty/Ktor/logging integrations that are not present on Android.
+-dontwarn io.netty.**
+-dontwarn org.slf4j.**
+-dontwarn org.apache.log4j.**
+-dontwarn org.apache.logging.log4j.**
+-dontwarn reactor.blockhound.**
+-dontwarn com.aayushatharva.brotli4j.**
+-dontwarn com.github.luben.zstd.**
+-dontwarn com.jcraft.jzlib.**
+-dontwarn com.ning.compress.**
+-dontwarn lzma.sdk.**
+-dontwarn net.jpountz.**
+-dontwarn org.conscrypt.**
+-dontwarn org.bouncycastle.**
+-dontwarn org.eclipse.jetty.**
+-dontwarn org.jboss.marshalling.**
+-dontwarn com.oracle.svm.**
+-dontwarn sun.security.**
+-dontwarn java.lang.management.**
+-dontwarn javax.naming.**

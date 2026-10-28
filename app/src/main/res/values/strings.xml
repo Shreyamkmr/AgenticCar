@@ -1,0 +1,87 @@
+<resources>
+    <string name="app_name">Agentic Car</string>
+
+    <string name="dashboard_title">OBD-II Logger</string>
+
+    <string name="permissions_title">Permissions needed</string>
+    <string name="permissions_rationale">Nearby devices access connects to your paired ELM327 adapter. Notifications keep the background logger visible while it runs.</string>
+    <string name="action_grant">Grant</string>
+    <string name="action_open_settings">Open settings</string>
+
+    <string name="device_label">ELM327 adapter</string>
+    <string name="device_none">No paired device</string>
+    <string name="action_connect">Connect</string>
+    <string name="action_disconnect">Disconnect</string>
+
+    <string name="obd_disconnected">Disconnected</string>
+    <string name="obd_connecting">Connecting to %1$s…</string>
+    <string name="obd_initializing">Initializing %1$s…</string>
+    <string name="obd_connected">Connected to %1$s</string>
+    <string name="obd_error">Error: %1$s</string>
+
+    <string name="gauge_rpm">RPM</string>
+    <string name="gauge_speed">km/h</string>
+    <string name="value_unknown">—</string>
+    <string name="metric_coolant">Coolant %1$s °C</string>
+    <string name="metric_load">Load %1$s %%</string>
+    <string name="metric_voltage">%1$s V</string>
+    <string name="trip_active">Trip active, logging snapshots</string>
+    <string name="trip_inactive">No active trip</string>
+
+    <string name="mcp_title">MCP server</string>
+    <string name="network_wifi_ip">Wi-Fi IPv4: %1$s</string>
+    <string name="network_no_wifi">Not on Wi-Fi or hotspot</string>
+    <string name="mcp_starting">MCP server starting…</string>
+    <string name="mcp_waiting_wifi">MCP waiting for Wi-Fi</string>
+    <string name="mcp_running">MCP on %1$s</string>
+    <string name="mcp_active_at">MCP Server active at %1$s</string>
+    <string name="mcp_error">MCP error: %1$s</string>
+    <string name="mcp_client_hint">claude mcp add --transport http agentic-car %1$s</string>
+    <string name="mcp_token_note">The short code at the end is the access token for this Wi-Fi. It never works through a tunnel.</string>
+    <string name="action_new_token">New tokens (disconnects all clients)</string>
+    <string name="public_access_title">Public access (HTTPS tunnel)</string>
+    <string name="public_access_off">Off: requests arriving through a tunnel are refused.</string>
+    <string name="public_access_on">On: anyone with the public URL can read your car data.</string>
+    <string name="public_access_intro">Gives claude.ai (web and mobile) an https:// address for this phone through a free Cloudflare Tunnel, from any network. The public URL ends in a long secret token; the short Wi-Fi token never works through the tunnel.</string>
+    <string name="mcp_no_wifi">No Wi-Fi: only the public tunnel can reach the server.</string>
+    <string name="mcp_no_wifi_short">tunnel only</string>
+    <string name="action_set_up">Set up</string>
+    <string name="action_back">Back</string>
+    <string name="action_save">Save</string>
+    <string name="action_copy_url">Copy URL</string>
+    <string name="tunnel_step_1">1. Choose the tunnel</string>
+    <string name="tunnel_step_2">2. Public access</string>
+    <string name="tunnel_quick_title">Quick tunnel (no account)</string>
+    <string name="tunnel_quick_body">Free and instant. The https URL is random and changes every time the tunnel starts, so you re-paste it into claude.ai. No uptime guarantee.</string>
+    <string name="tunnel_named_title">Cloudflare named tunnel (fixed URL)</string>
+    <string name="tunnel_named_body">Free Cloudflare account and your own domain. In Zero Trust → Networks → Tunnels create a tunnel, add a public hostname pointing to http://127.0.0.1:8080, then paste its token and hostname here.</string>
+    <string name="tunnel_token_label">Tunnel token</string>
+    <string name="tunnel_hostname_label">Public hostname (e.g. car.example.com)</string>
+    <string name="tunnel_locked_note">Switch public access off to change the tunnel.</string>
+    <string name="tunnel_starting">Starting tunnel…</string>
+    <string name="tunnel_running_short">On, tunnel connected</string>
+    <string name="tunnel_error_short">On, tunnel error (retrying)</string>
+    <string name="tunnel_error">Tunnel error, retrying: %1$s</string>
+    <string name="tunnel_unavailable">This build has no tunnel binary (arm64 phones only).</string>
+    <string name="tunnel_waiting_mcp">Waiting for the MCP server to start…</string>
+    <string name="tunnel_public_url">Public MCP URL (add as a custom connector in claude.ai):</string>
+    <string name="tunnel_quick_changes">Quick tunnel: this URL changes whenever the tunnel restarts.</string>
+
+    <string name="notification_channel_name">OBD logger</string>
+    <string name="notification_title">Agentic Car logger</string>
+    <string name="notification_starting">Starting…</string>
+    <string name="notification_trip_active">Trip active</string>
+    <string name="notification_action_stop">Stop</string>
+
+    <string name="recording_title">Recording</string>
+    <string name="recording_session">%1$d signals · %2$d PIDs/request · protocol %3$s</string>
+    <string name="recording_vin">VIN %1$s</string>
+    <string name="recording_trip">Trip: %1$d readings → %2$d stored (%3$.1f KB)</string>
+    <string name="recording_waiting_engine">Waiting for the engine to start a trip</string>
+    <string name="recording_dtcs">Trouble codes: %1$s (* pending)</string>
+    <string name="live_signals_title">Live signals (%1$d)</string>
+    <string name="action_show">Show</string>
+    <string name="action_hide">Hide</string>
+
+    <string name="error_no_bluetooth">This device has no Bluetooth adapter</string>
+</resources>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Monochrome status-bar icon: a simple gauge. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,4C6.48,4 2,8.48 2,14c0,2.03 0.61,3.92 1.65,5.5h16.7C21.39,17.92 22,16.03 22,14 22,8.48 17.52,4 12,4zM12,6c4.41,0 8,3.59 8,8 0,1.27 -0.3,2.47 -0.83,3.5H4.83C4.3,16.47 4,15.27 4,14c0,-4.41 3.59,-8 8,-8zM16.24,8.34l-4.95,4.95c-0.39,0.39 -0.39,1.02 0,1.41 0.39,0.39 1.02,0.39 1.41,0l4.95,-4.95z" />
+</vector>
