@@ -60,6 +60,9 @@ import com.example.agenticcar.R
 import com.example.agenticcar.data.McpServerState
 import com.example.agenticcar.data.ObdConnectionState
 import com.example.agenticcar.data.RecorderStatus
+import com.example.agenticcar.data.VehicleSettings
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import com.example.agenticcar.protocol.mcp.TunnelState
 import com.example.agenticcar.protocol.obd.PidCatalog
 import com.example.agenticcar.service.BondedDevice
@@ -157,6 +160,7 @@ fun DashboardScreen(
                 )
             }
             McpCard(state = state, onEvent = onEvent, onOpenPublicAccess = onOpenPublicAccess)
+            VehicleCard(displacementL = state.engineDisplacementL, onSave = { onEvent(DashboardEvent.EngineSizeSaved(it)) })
             if (state.liveSignals.isNotEmpty()) LiveSignalsCard(signals = state.liveSignals)
         }
     }
@@ -410,6 +414,38 @@ private fun RecordingCard(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VehicleCard(displacementL: Double?, onSave: (Double?) -> Unit, modifier: Modifier = Modifier) {
+    var text by rememberSaveable(displacementL) { mutableStateOf(displacementL?.toString().orEmpty()) }
+    val parsed = text.replace(',', '.').toDoubleOrNull()
+    val valid = text.isBlank() || (parsed != null && parsed in VehicleSettings.MIN_L..VehicleSettings.MAX_L)
+    Card(modifier = modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.vehicle_title), style = MaterialTheme.typography.titleMedium)
+            Text(
+                stringResource(R.string.vehicle_engine_size_help),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    label = { Text(stringResource(R.string.vehicle_engine_size_label)) },
+                    isError = !valid,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.weight(1f),
+                )
+                Button(
+                    onClick = { onSave(if (text.isBlank()) null else parsed) },
+                    enabled = valid && (if (text.isBlank()) null else parsed) != displacementL,
+                ) { Text(stringResource(R.string.action_save)) }
             }
         }
     }

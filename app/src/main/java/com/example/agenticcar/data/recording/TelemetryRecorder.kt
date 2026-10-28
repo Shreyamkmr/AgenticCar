@@ -3,6 +3,7 @@ package com.example.agenticcar.data.recording
 import com.example.agenticcar.data.LiveMetrics
 import com.example.agenticcar.data.RecorderStatus
 import com.example.agenticcar.data.TelemetryState
+import com.example.agenticcar.data.VehicleSettings
 import com.example.agenticcar.data.db.EventEntity
 import com.example.agenticcar.data.db.SignalBlockEntity
 import com.example.agenticcar.data.db.TripEntity
@@ -45,6 +46,7 @@ data class ObdSessionInfo(
 class TelemetryRecorder @Inject constructor(
     private val writer: TelemetryWriter,
     private val state: TelemetryState,
+    private val vehicle: VehicleSettings,
 ) {
     private var session: ObdSessionInfo? = null
     private var trip: TripAccumulator? = null
@@ -107,7 +109,7 @@ class TelemetryRecorder @Inject constructor(
     }
 
     private fun startTrip(timeMs: Long): TripAccumulator {
-        val t = TripAccumulator(timeMs, session) { op -> writer.submit(op) }
+        val t = TripAccumulator(timeMs, session, vehicle.engineDisplacementL.value) { op -> writer.submit(op) }
         trip = t
         // Seed every trip with a snapshot of all known values, including the rarely polled constants.
         for ((id, value) in live) t.add(timeMs, Reading(id, value))
@@ -181,6 +183,8 @@ class TelemetryRecorder @Inject constructor(
 private class TripAccumulator(
     val id: Long,
     private val session: ObdSessionInfo?,
+    /** Engine size for the speed-density fuel estimate, fixed for the trip; null disables it. */
+    private val engineDisplacementL: Double?,
     private val sink: (TelemetryWriter.Op) -> Unit,
 ) {
     var lastRunningAt = id
@@ -200,6 +204,10 @@ private class TripAccumulator(
     private var maxCoolant: Double? = null
 
     private var rpm = 0.0
+    private var engineStartedAt: Long? = null
+    private var lowVoltageSince: Long? = null
+    private var intakeAirTempC: Double? = null
+    private var lastMapEstimateT = -1L
     private var fuelType: Double? = null
     private var lastSpeedT = -1L
     private var lastSpeed = 0.0
@@ -241,6 +249,7 @@ private class TripAccumulator(
         maxSpeedKmh = maxSpeed,
         maxRpm = maxRpm,
         maxCoolantC = maxCoolant,
+        pidsPerRequest = session?.batchSize,
         rawSamples = rawSamples,
         storedSamples = storedSamples,
         storedBytes = storedBytes,
@@ -257,6 +266,7 @@ private class TripAccumulator(
         when (signalId) {
             PidCatalog.ID_SPEED -> onSpeed(t, v)
             PidCatalog.ID_RPM -> {
+                if (v > 400 && rpm <= 400) engineStartedAt = t else if (v <= 400) engineStartedAt = null
                 rpm = v
                 maxRpm = max(maxRpm ?: v, v)
                 if (v > OVER_REV_RPM) event(t, "OVER_REV", v, cooldownMs = 10_000)
@@ -273,18 +283,53 @@ private class TripAccumulator(
             }
             PidCatalog.ID_MAF -> {
                 // Without a fuel-rate PID, estimate petrol consumption from airflow at stoichiometric AFR.
-                val petrol = fuelType == null || fuelType == 1.0
-                if (lastFuelRateT < 0 && petrol) {
+                if (lastFuelRateT < 0 && isPetrol()) {
                     if (lastMafT >= 0 && t - lastMafT <= MAX_INTEGRATION_GAP_MS) {
-                        fuelL += v / (STOICH_AFR_PETROL * PETROL_DENSITY_G_PER_L) * (t - lastMafT) / 1000.0
+                        fuelL += FuelModel.fromMafLh(v) * (t - lastMafT) / 3_600_000.0
                     }
                     fuelKnown = true
                 }
                 lastMafT = t
             }
-            PidCatalog.ADAPTER_VOLTAGE_ID, PidCatalog.ID_MODULE_VOLTAGE ->
-                if (rpm > 1_200 && v < LOW_CHARGING_V) event(t, "LOW_CHARGING_VOLTAGE", v, cooldownMs = 120_000)
+            PidCatalog.ID_INTAKE_AIR_TEMP -> intakeAirTempC = v
+            PidCatalog.ID_INTAKE_MAP -> estimateFuelFromMap(t, v)
+            PidCatalog.ADAPTER_VOLTAGE_ID, PidCatalog.ID_MODULE_VOLTAGE -> checkChargingVoltage(t, v)
         }
+    }
+
+    private fun isPetrol() = fuelType == null || fuelType == 1.0
+
+    /**
+     * Last resort for cars with neither a fuel-rate PID nor a MAF sensor: speed-density airflow from
+     * manifold pressure, intake temperature, RPM and the configured engine size. Recorded as its own
+     * signal so it is never mistaken for a measured value.
+     */
+    private fun estimateFuelFromMap(t: Long, mapKpa: Double) {
+        val displacement = engineDisplacementL ?: return
+        val iat = intakeAirTempC ?: return
+        if (lastFuelRateT >= 0 || lastMafT >= 0 || !isPetrol()) return
+        val fuelLh = if (rpm < 400) 0.0 else FuelModel.fromMafLh(FuelModel.speedDensityMafGs(mapKpa, iat, rpm, displacement))
+        if (lastMapEstimateT >= 0 && t - lastMapEstimateT <= MAX_INTEGRATION_GAP_MS) fuelL += fuelLh * (t - lastMapEstimateT) / 3_600_000.0
+        lastMapEstimateT = t
+        fuelKnown = true
+        val def = PidCatalog.signal(PidCatalog.ID_FUEL_RATE_EST) ?: return
+        tracks.getOrPut(def.id) { SignalTrack(id, def) }.add((t - id).toInt(), fuelLh)?.let(::emit)
+    }
+
+    /**
+     * Low charging voltage only counts once the engine has run for [CHARGING_SETTLE_MS] and the
+     * voltage has stayed low for [LOW_VOLTAGE_SUSTAIN_MS]: right after a start the last reading
+     * is still the cranking dip (11.7 V on the first real trip) while the alternator spins up.
+     */
+    private fun checkChargingVoltage(t: Long, volts: Double) {
+        val started = engineStartedAt
+        val settled = started != null && t - started >= CHARGING_SETTLE_MS && rpm > 1_200
+        if (!settled || volts >= LOW_CHARGING_V) {
+            lowVoltageSince = null
+            return
+        }
+        val since = lowVoltageSince ?: t.also { lowVoltageSince = it }
+        if (t - since >= LOW_VOLTAGE_SUSTAIN_MS) event(t, "LOW_CHARGING_VOLTAGE", volts, cooldownMs = 120_000)
     }
 
     private fun onSpeed(t: Long, v: Double) {
@@ -322,11 +367,11 @@ private class TripAccumulator(
         const val OVER_REV_RPM = 5_000.0
         const val OVERHEAT_C = 110.0
         const val LOW_CHARGING_V = 12.8
+        const val CHARGING_SETTLE_MS = 30_000L
+        const val LOW_VOLTAGE_SUSTAIN_MS = 20_000L
         // ~0.34 g and ~0.4 g, common telematics thresholds.
         const val HARSH_ACCEL_KMH_S = 12.0
         const val HARSH_BRAKE_KMH_S = 14.0
-        const val STOICH_AFR_PETROL = 14.7
-        const val PETROL_DENSITY_G_PER_L = 745.0
     }
 }
 

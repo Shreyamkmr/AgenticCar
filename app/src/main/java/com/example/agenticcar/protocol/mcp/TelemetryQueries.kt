@@ -105,13 +105,17 @@ class TelemetryQueries @Inject constructor(private val dao: TelemetryDao) {
      * Per-band engine figures are time-weighted samples of the step-hold series at each grade point.
      */
     private suspend fun elevationInsights(tripId: Long, endMs: Int, speed: List<Point>, rpm: List<Point>): ElevationInsights? {
-        val ids = listOf(PidCatalog.ID_GPS_ALTITUDE, PidCatalog.ID_ROAD_GRADE, PidCatalog.ID_ENGINE_LOAD, PidCatalog.ID_FUEL_RATE, PidCatalog.ID_MAF)
+        val ids = listOf(
+            PidCatalog.ID_GPS_ALTITUDE, PidCatalog.ID_ROAD_GRADE, PidCatalog.ID_ENGINE_LOAD,
+            PidCatalog.ID_FUEL_RATE, PidCatalog.ID_FUEL_RATE_EST, PidCatalog.ID_MAF,
+        )
         val s = series(tripId, ids, 0, endMs + 1)
         val altitude = s[PidCatalog.ID_GPS_ALTITUDE].orEmpty()
         if (altitude.isEmpty()) return null
         val grade = s[PidCatalog.ID_ROAD_GRADE].orEmpty()
         val load = s[PidCatalog.ID_ENGINE_LOAD].orEmpty()
-        val fuelRate = s[PidCatalog.ID_FUEL_RATE].orEmpty()
+        // Measured fuel rate when the car reports it, otherwise the speed-density estimate.
+        val fuelRate = s[PidCatalog.ID_FUEL_RATE] ?: s[PidCatalog.ID_FUEL_RATE_EST].orEmpty()
         val maf = s[PidCatalog.ID_MAF].orEmpty()
 
         // Climb/descent with hysteresis, so GPS noise does not add up to phantom metres.

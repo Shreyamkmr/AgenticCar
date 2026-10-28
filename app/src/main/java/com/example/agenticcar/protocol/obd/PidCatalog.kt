@@ -49,8 +49,11 @@ object PidCatalog {
     const val ID_DTC_COUNT = 0x101
     const val ID_ENGINE_LOAD = 0x04
     const val ID_COOLANT = 0x05
+    const val ID_INTAKE_MAP = 0x0B
     const val ID_RPM = 0x0C
     const val ID_SPEED = 0x0D
+    const val ID_TIMING_ADVANCE = 0x0E
+    const val ID_INTAKE_AIR_TEMP = 0x0F
     const val ID_MAF = 0x10
     const val ID_MODULE_VOLTAGE = 0x42
     const val ID_FUEL_TYPE = 0x51
@@ -82,6 +85,18 @@ object PidCatalog {
         SignalDef(ID_GPS_BEARING, "gps_bearing", "GPS heading (0 = north, clockwise)", "°", 1.0, 3.0),
         SignalDef(ID_GPS_ACCURACY, "gps_accuracy", "GPS horizontal accuracy (68 % radius)", "m", 1.0, 2.0),
         SignalDef(ID_ROAD_GRADE, "road_grade", "Road grade from smoothed GPS altitude over 100 m (+ = uphill)", "%", 0.1, 0.3),
+    )
+
+    /** Computed by the app, never read from the car. */
+    const val ID_FUEL_RATE_EST = 0x3010
+
+    val derivedSignals = listOf(
+        SignalDef(
+            ID_FUEL_RATE_EST, "fuel_rate_est",
+            "Estimated fuel rate for cars without MAF or fuel-rate PIDs: speed-density from MAP, intake air " +
+                "temperature, RPM and the configured engine size, 85 % volumetric efficiency, petrol at lambda 1 (±15 %)",
+            "L/h", 0.05, 0.1,
+        ),
     )
 
     private val defs = ArrayList<PidDef>()
@@ -183,7 +198,7 @@ object PidCatalog {
 
     val pids: Map<Int, PidDef> = defs.associateBy { it.pid }
     private val signalsById: Map<Int, SignalDef> =
-        (defs.flatMap { it.signals } + adapterVoltage + gpsSignals).associateBy { it.id }
+        (defs.flatMap { it.signals } + adapterVoltage + gpsSignals + derivedSignals).associateBy { it.id }
     private val signalsByKey: Map<String, SignalDef> = signalsById.values.associateBy { it.key }
     private val rawKey = Regex("pid_([0-9a-f]{2})_raw")
 
@@ -202,6 +217,7 @@ object PidCatalog {
     fun tierOf(signalId: Int): PollTier = when {
         signalId == ADAPTER_VOLTAGE_ID -> PollTier.MEDIUM
         signalId in ID_GPS_LATITUDE..ID_ROAD_GRADE -> PollTier.MEDIUM
+        signalId == ID_FUEL_RATE_EST -> PollTier.FAST
         signalId < 0x200 -> pids[signalId and 0xFF]?.tier ?: PollTier.SLOW
         else -> PollTier.SLOW
     }

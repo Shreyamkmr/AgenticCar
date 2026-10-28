@@ -27,6 +27,8 @@ data class TripEntity(
     @ColumnInfo(name = "max_speed_kmh") val maxSpeedKmh: Double?,
     @ColumnInfo(name = "max_rpm") val maxRpm: Double?,
     @ColumnInfo(name = "max_coolant_c") val maxCoolantC: Double?,
+    /** Mode 01 PIDs per request the car accepted (6 on most CAN cars, 1 otherwise); added in version 3. */
+    @ColumnInfo(name = "pids_per_request") val pidsPerRequest: Int?,
     @ColumnInfo(name = "raw_samples") val rawSamples: Long,
     @ColumnInfo(name = "stored_samples") val storedSamples: Long,
     @ColumnInfo(name = "stored_bytes") val storedBytes: Long,

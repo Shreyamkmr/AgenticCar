@@ -148,6 +148,10 @@ The server also sends instructions describing the data model and a suggested wor
 
 PIDs the car advertises but never answers are dropped after five attempts. Undecodable PIDs are stored raw as `pid_xx_raw`.
 
+On CAN the app addresses the engine ECU directly (`ATSH7E0`, or the 29-bit equivalent), so replies from other modules cannot interleave into corrupt values, and a spike filter drops single readings that jump implausibly (for example RPM 931 → 4366 → 1274 at a steady speed) unless the next reading confirms them.
+
+**Fuel used** comes from the fuel-rate PID when the car has one, otherwise from the MAF sensor, otherwise from a speed-density estimate (`fuel_rate_est`: manifold pressure, intake temperature, RPM and the engine size you enter in the app's **Vehicle** card; petrol, about ±15 %).
+
 ### GPS and road grade
 
 With location permission, the phone's GPS adds `gps_latitude`, `gps_longitude`, `gps_altitude` (above sea level on Android 14+), `gps_speed`, `gps_bearing` and `gps_accuracy` at 1 Hz, plus a derived `road_grade`. GPS altitude is only good to ±5-15 m, so grade is never taken from consecutive fixes: altitude is smoothed over distance travelled (40 m), the slope is measured across at least 100 m, and fixes while stopped or with poor accuracy are ignored. On a constant slope this stays within about 1 % even with ±2 m altitude noise, and braking does not bias it. A position costs about 2 bytes.

@@ -167,7 +167,7 @@ class ObdMcpTools @Inject constructor(
             put("vin", if (rs.sessionActive) rs.vin else latest?.vin)
             put("obd_protocol", if (rs.sessionActive) rs.protocol else latest?.protocol)
             put("adapter", rs.adapterVersion ?: latest?.adapter)
-            put("pids_per_request", rs.batchSize)
+            put("pids_per_request", if (rs.sessionActive) rs.batchSize else latest?.pidsPerRequest)
             put("fuel_type", lastValue(PidCatalog.ID_FUEL_TYPE)?.let(::fuelTypeName))
             putJsonArray("signals") {
                 signalIds.mapNotNull(PidCatalog::signal).forEach { def ->
@@ -437,6 +437,7 @@ class ObdMcpTools @Inject constructor(
         put("max_rpm", trip.maxRpm)
         put("max_coolant_c", trip.maxCoolantC)
         put("vin", trip.vin)
+        put("pids_per_request", trip.pidsPerRequest)
         put("readings", trip.rawSamples)
         put("stored_samples", trip.storedSamples)
     }
@@ -511,7 +512,9 @@ class ObdMcpTools @Inject constructor(
             get_signal_series for detail (start with max_points ~100, then zoom with from_s/to_s) -> get_events and
             get_diagnostics for faults. When the phone had a GPS fix, trips also hold gps_latitude/longitude/altitude,
             gps_speed and road_grade (% over 100 m, + = uphill): get_route returns the track, and get_trip_summary
-            compares engine load, RPM and fuel use across slope bands. GPS altitude is accurate to ±5-15 m, so trust
+            compares engine load, RPM and fuel use across slope bands. fuel_used_l comes from the fuel_rate PID when
+            the car has it, else from MAF, else from fuel_rate_est (speed-density from MAP, intake temperature, RPM
+            and the engine size set in the app, ±15 %); it is null when none apply. GPS altitude is accurate to ±5-15 m, so trust
             grades over hundreds of metres, not single points. Fuel trims: stft/ltft beyond about ±10% suggest a
             mixture problem; coolant should settle near 85-105 °C; charging voltage should be about 13.5-14.7 V with
             the engine running.

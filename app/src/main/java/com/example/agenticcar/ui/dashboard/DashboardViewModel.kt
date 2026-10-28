@@ -7,8 +7,11 @@ import androidx.lifecycle.viewModelScope
 import com.example.agenticcar.BuildConfig
 import com.example.agenticcar.data.TelemetryState
 import com.example.agenticcar.data.network.WifiAddressMonitor
+import com.example.agenticcar.data.VehicleSettings
 import com.example.agenticcar.protocol.mcp.CloudflareTunnel
+import com.example.agenticcar.protocol.mcp.McpAccess
 import com.example.agenticcar.protocol.mcp.McpTokenStore
+import com.example.agenticcar.protocol.mcp.TunnelState
 import com.example.agenticcar.service.BondedDevice
 import com.example.agenticcar.service.ObdBluetoothManager
 import com.example.agenticcar.service.ServiceLauncher
@@ -31,6 +34,7 @@ class DashboardViewModel @Inject constructor(
     private val serviceLauncher: ServiceLauncher,
     private val mcpTokens: McpTokenStore,
     tunnel: CloudflareTunnel,
+    private val vehicle: VehicleSettings,
 ) : ViewModel() {
 
     private data class LocalState(
@@ -53,8 +57,15 @@ class DashboardViewModel @Inject constructor(
     }
 
     val state: StateFlow<DashboardUiState> =
-        combine(_local, telemetry, wifiMonitor.ipv4, mcpTokens.access, tunnel.state) { local, t, ip, access, tunnelState ->
+        combine(_local, telemetry, wifiMonitor.ipv4, mcpTokens.access, tunnel.state, vehicle.engineDisplacementL) { values ->
+            val local = values[0] as LocalState
+            val t = values[1] as DashboardUiState
+            val ip = values[2] as String?
+            val access = values[3] as McpAccess
+            val tunnelState = values[4] as TunnelState
+            val displacement = values[5] as Double?
             t.copy(
+                engineDisplacementL = displacement,
                 permissionsGranted = local.permissionsGranted,
                 locationGranted = local.locationGranted,
                 devices = local.devices,
@@ -82,6 +93,7 @@ class DashboardViewModel @Inject constructor(
                 if (event.enabled && !state.value.mcpEnabled) serviceLauncher.setMcpEnabled(true)
             }
             is DashboardEvent.TunnelConfigSaved -> mcpTokens.setTunnel(event.config)
+            is DashboardEvent.EngineSizeSaved -> vehicle.setEngineDisplacementL(event.litres)
         }
     }
 

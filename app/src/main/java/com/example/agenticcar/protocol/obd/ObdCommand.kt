@@ -12,6 +12,15 @@ object ObdCommand {
     const val AUTO_PROTOCOL = "AT SP 0"
 
     const val IDENTIFY = "ATI"
+
+    // Request addressing on CAN. Functional requests (the default) are answered by every ECU, and
+    // with headers off the ELM327 interleaves their multi-frame replies, corrupting values.
+    // Addressing the engine ECU physically gives one clean reply per request.
+    const val HEADER_ENGINE_11BIT = "ATSH7E0"
+    const val HEADER_FUNCTIONAL_11BIT = "ATSH7DF"
+    const val PRIORITY_29BIT = "ATCP18"
+    const val HEADER_ENGINE_29BIT = "ATSHDA10F1"
+    const val HEADER_FUNCTIONAL_29BIT = "ATSHDB33F1"
     const val DESCRIBE_PROTOCOL_NUMBER = "ATDPN"
     const val READ_VOLTAGE = "ATRV"
 

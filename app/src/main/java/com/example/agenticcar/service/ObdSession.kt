@@ -2,7 +2,9 @@ package com.example.agenticcar.service
 
 import com.example.agenticcar.data.recording.DtcKind
 import com.example.agenticcar.data.recording.ObdSessionInfo
+import android.util.Log
 import com.example.agenticcar.data.recording.Reading
+import com.example.agenticcar.data.recording.SpikeFilter
 import com.example.agenticcar.data.recording.TelemetryRecorder
 import com.example.agenticcar.protocol.obd.Elm327Parser
 import com.example.agenticcar.protocol.obd.ObdCommand
@@ -29,6 +31,17 @@ class ObdSession(
 ) {
     private enum class Kind { MODE01, VOLTAGE, DTCS }
 
+    /** Largest believable change between two consecutive polls; bigger jumps need confirming. */
+    private val spikes = SpikeFilter(
+        mapOf(
+            PidCatalog.ID_RPM to 1_500.0,
+            PidCatalog.ID_SPEED to 30.0,
+            PidCatalog.ID_TIMING_ADVANCE to 25.0,
+            PidCatalog.ID_COOLANT to 15.0,
+            PidCatalog.ID_INTAKE_AIR_TEMP to 15.0,
+        ),
+    )
+
     private class Task(val kind: Kind, val pid: Int, val periodMillis: Long, val priority: Int, val decodable: Boolean) {
         var nextDue = 0L
         var misses = 0
@@ -39,9 +52,10 @@ class ObdSession(
     suspend fun run(onReady: () -> Unit): Nothing {
         link.initialize()
         val version = query(ObdCommand.IDENTIFY, ObdCommand.AT_TIMEOUT_MS)?.let(::firstLine)
-        val supported = discoverSupportedPids()
-        if (supported.isEmpty()) throw IOException("No ECU answered. Is the ignition on?")
+        val discovered = discoverSupportedPids()
+        if (discovered.isEmpty()) throw IOException("No ECU answered. Is the ignition on?")
         val protocol = query(ObdCommand.DESCRIBE_PROTOCOL_NUMBER, ObdCommand.AT_TIMEOUT_MS)?.let(::firstLine)
+        val supported = targetEngineEcu(protocol) ?: discovered
         val batchSize = detectBatchSize(supported)
         val vin = query(ObdCommand.VIN, ObdCommand.DISCOVERY_TIMEOUT_MS)?.let(Elm327Parser::vin)
 
@@ -72,6 +86,31 @@ class ObdSession(
             base += 0x20
         }
         return supported.filterNot(PidCatalog::isBitmapPid).toSortedSet()
+    }
+
+    /**
+     * On CAN, addresses requests to the engine ECU only and returns the PIDs it supports, or null
+     * (restoring functional addressing) when the protocol is not CAN or the engine ECU does not answer.
+     * With every ECU replying and headers off, the ELM327 can interleave two ECUs' multi-frame
+     * replies into one corrupt value; one addressee removes that, and the transmission ECU's
+     * duplicate answers.
+     */
+    private suspend fun targetEngineEcu(protocol: String?): Set<Int>? {
+        // ATDPN prints the protocol number, prefixed by "A" when it was found automatically.
+        val (setup, revert) = when (protocol?.lastOrNull()) {
+            '6', '8' -> listOf(ObdCommand.HEADER_ENGINE_11BIT) to listOf(ObdCommand.HEADER_FUNCTIONAL_11BIT)
+            '7', '9' -> listOf(ObdCommand.PRIORITY_29BIT, ObdCommand.HEADER_ENGINE_29BIT) to listOf(ObdCommand.HEADER_FUNCTIONAL_29BIT)
+            else -> return null
+        }
+        setup.forEach { query(it, ObdCommand.AT_TIMEOUT_MS) }
+        val pids = discoverSupportedPids()
+        if (pids.isNotEmpty()) {
+            Log.i(TAG, "Addressing the engine ECU only: ${pids.size} PIDs")
+            return pids
+        }
+        Log.w(TAG, "Engine ECU did not answer physical requests; using functional addressing")
+        revert.forEach { query(it, ObdCommand.AT_TIMEOUT_MS) }
+        return null
     }
 
     /** Multi-PID requests are a CAN feature; probe with real PIDs instead of trusting the protocol number. */
@@ -154,7 +193,8 @@ class ObdSession(
             val def = PidCatalog.pids[task.pid]
             if (def != null) {
                 def.decode(bytes).forEachIndexed { i, value ->
-                    if (value != null && value.isFinite()) readings += Reading(def.signals[i].id, value)
+                    val id = def.signals[i].id
+                    if (value != null && value.isFinite() && spikes.accept(id, value)) readings += Reading(id, value)
                 }
             } else {
                 val raw = bytes.take(6).fold(0L) { acc, b -> (acc shl 8) or b.toLong() }
@@ -191,6 +231,7 @@ class ObdSession(
     private fun firstLine(response: String): String? = Elm327Parser.clean(response).lineSequence().firstOrNull()
 
     private companion object {
+        const val TAG = "ObdSession"
         const val MAX_BATCH = 6
         const val MAX_MISSES = 5
         const val MAX_SILENT_REQUESTS = 12

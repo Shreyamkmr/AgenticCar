@@ -55,7 +55,13 @@ class AndroidLocationSource(private val context: Context) : LocationSource {
         val lm = context.getSystemService(LocationManager::class.java)
         // Converting to sea-level altitude reads a geoid model from disk, so the callback runs off the main thread.
         val converter = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) AltitudeConverter() else null
-        val listener = LocationListenerCompat { location -> trySend(location.toFix(converter)) }
+        var firstFixAt = 0L
+        val listener = LocationListenerCompat { location ->
+            val now = System.currentTimeMillis()
+            if (firstFixAt == 0L) firstFixAt = now
+            val fix = location.toFix(converter)
+            trySend(if (altitudeTrusted(location, now - firstFixAt)) fix else fix.copy(altitudeM = null))
+        }
         val request = LocationRequestCompat.Builder(INTERVAL_MS)
             .setQuality(LocationRequestCompat.QUALITY_HIGH_ACCURACY)
             .setMinUpdateIntervalMillis(INTERVAL_MS)
@@ -84,9 +90,23 @@ class AndroidLocationSource(private val context: Context) : LocationSource {
         )
     }
 
+    /**
+     * GPS altitude settles well after the position does: on the first real trip it started 18 m
+     * high and drifted down. Altitude is only recorded once the receiver reports a vertical
+     * accuracy of [MAX_VERTICAL_ACCURACY_M], or, on phones that do not report it, after
+     * [SETTLE_WITHOUT_ACCURACY_MS] of fixes.
+     */
+    private fun altitudeTrusted(location: Location, msSinceFirstFix: Long): Boolean = when {
+        !location.hasAltitude() -> false
+        location.hasVerticalAccuracy() -> location.verticalAccuracyMeters <= MAX_VERTICAL_ACCURACY_M
+        else -> msSinceFirstFix >= SETTLE_WITHOUT_ACCURACY_MS
+    }
+
     companion object {
         private const val TAG = "AndroidLocationSource"
         private const val INTERVAL_MS = 1_000L
+        private const val MAX_VERTICAL_ACCURACY_M = 10f
+        private const val SETTLE_WITHOUT_ACCURACY_MS = 60_000L
 
         fun hasPermission(context: Context): Boolean =
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) ==

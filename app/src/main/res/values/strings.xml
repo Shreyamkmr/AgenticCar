@@ -84,6 +84,9 @@
     <string name="gps_off">GPS off: allow location to record altitude and road grade</string>
     <string name="gps_waiting">GPS: waiting for a fix…</string>
     <string name="action_allow">Allow</string>
+    <string name="vehicle_title">Vehicle</string>
+    <string name="vehicle_engine_size_help">Engine size lets the app estimate fuel use on cars without a MAF sensor or fuel-rate reading (petrol only, about ±15 %). Applies from the next trip.</string>
+    <string name="vehicle_engine_size_label">Engine size (litres), e.g. 1.2</string>
     <string name="action_show">Show</string>
     <string name="action_hide">Hide</string>
 
