@@ -80,6 +80,10 @@
     <string name="recording_waiting_engine">Waiting for the engine to start a trip</string>
     <string name="recording_dtcs">Trouble codes: %1$s (* pending)</string>
     <string name="live_signals_title">Live signals (%1$d)</string>
+    <string name="gps_status">GPS: %1$s m · grade %2$s %% · ±%3$s m</string>
+    <string name="gps_off">GPS off: allow location to record altitude and road grade</string>
+    <string name="gps_waiting">GPS: waiting for a fix…</string>
+    <string name="action_allow">Allow</string>
     <string name="action_show">Show</string>
     <string name="action_hide">Hide</string>
 

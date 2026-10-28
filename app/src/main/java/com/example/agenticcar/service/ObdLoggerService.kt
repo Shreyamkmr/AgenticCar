@@ -23,8 +23,13 @@ import com.example.agenticcar.R
 import com.example.agenticcar.data.McpServerState
 import com.example.agenticcar.data.ObdConnectionState
 import com.example.agenticcar.data.TelemetryState
+import com.example.agenticcar.data.location.AndroidLocationSource
+import com.example.agenticcar.data.location.GradeEstimator
+import com.example.agenticcar.data.location.SimulatedLocationSource
 import com.example.agenticcar.data.network.WifiAddressMonitor
+import com.example.agenticcar.data.recording.Reading
 import com.example.agenticcar.data.recording.TelemetryRecorder
+import com.example.agenticcar.protocol.obd.PidCatalog
 import com.example.agenticcar.di.ApplicationScope
 import com.example.agenticcar.protocol.mcp.CloudflareTunnel
 import com.example.agenticcar.protocol.mcp.McpServerController
@@ -128,7 +133,41 @@ class ObdLoggerService : Service() {
 
     private fun startObd(address: String) {
         obdJob?.cancel()
-        obdJob = serviceScope.launch { connectLoop(address) }
+        obdJob = serviceScope.launch {
+            // GPS shares the OBD session's lifetime: stopping the session stops location updates.
+            launch { recordGps(simulated = address == SimulatedElm327Link.ADDRESS) }
+            connectLoop(address)
+        }
+    }
+
+    /** Feeds 1 Hz GPS fixes (and the derived road grade) into the same trips as the ECU signals. */
+    private suspend fun recordGps(simulated: Boolean) {
+        val source = when {
+            simulated -> SimulatedLocationSource(telemetryState)
+            AndroidLocationSource.hasPermission(this) -> AndroidLocationSource(applicationContext)
+            else -> return
+        }
+        val grade = GradeEstimator()
+        try {
+            source.fixes().collect { fix ->
+                val readings = buildList {
+                    add(Reading(PidCatalog.ID_GPS_LATITUDE, fix.latitude))
+                    add(Reading(PidCatalog.ID_GPS_LONGITUDE, fix.longitude))
+                    fix.altitudeM?.let { add(Reading(PidCatalog.ID_GPS_ALTITUDE, it)) }
+                    fix.speedMs?.let { add(Reading(PidCatalog.ID_GPS_SPEED, it * 3.6)) }
+                    fix.bearingDeg?.let { add(Reading(PidCatalog.ID_GPS_BEARING, it)) }
+                    fix.accuracyM?.let { add(Reading(PidCatalog.ID_GPS_ACCURACY, it)) }
+                    grade.update(fix.latitude, fix.longitude, fix.altitudeM, fix.speedMs, fix.accuracyM)
+                        ?.let { add(Reading(PidCatalog.ID_ROAD_GRADE, it)) }
+                }
+                recorder.onReadings(System.currentTimeMillis(), readings)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Losing GPS must never stop OBD recording.
+            Log.w(TAG, "GPS recording stopped", e)
+        }
     }
 
     private fun stopObd() {
@@ -219,7 +258,9 @@ class ObdLoggerService : Service() {
 
     private fun promoteToForeground(): Boolean = try {
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            // The location type is only allowed (and only needed) once location permission is granted.
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+                (if (AndroidLocationSource.hasPermission(this)) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0)
         } else {
             0
         }

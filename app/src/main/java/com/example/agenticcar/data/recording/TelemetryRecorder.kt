@@ -232,7 +232,8 @@ private class TripAccumulator(
         vin = session?.vin,
         protocol = session?.protocol,
         adapter = session?.adapterName,
-        signalIds = session?.signalIds?.joinToString(",") ?: tracks.keys.sorted().joinToString(","),
+        // Supported ECU signals plus anything else recorded, such as GPS.
+        signalIds = (session?.signalIds.orEmpty() + tracks.keys).distinct().sorted().joinToString(","),
         distanceKm = distanceKm,
         fuelUsedL = if (fuelKnown) fuelL else null,
         idleSeconds = idleMs / 1000.0,

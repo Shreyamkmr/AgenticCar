@@ -34,7 +34,7 @@
     <rect x="562" y="222" width="230" height="40" rx="20" fill="#4a3a3e"/>
     <text x="677" y="249" text-anchor="middle" fill="#ffb4ab">~1 byte / reading</text>
     <rect x="806" y="222" width="168" height="40" rx="20" fill="#4a3a3e"/>
-    <text x="890" y="249" text-anchor="middle" fill="#ffb4ab">8 MCP tools</text>
+    <text x="890" y="249" text-anchor="middle" fill="#ffb4ab">9 MCP tools</text>
     <rect x="988" y="222" width="232" height="40" rx="20" fill="#4a3a3e"/>
     <text x="1104" y="249" text-anchor="middle" fill="#ffb4ab">Wi-Fi or HTTPS</text>
   </g>

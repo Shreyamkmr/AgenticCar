@@ -11,6 +11,8 @@ import com.example.agenticcar.service.BondedDevice
 
 data class DashboardUiState(
     val permissionsGranted: Boolean = false,
+    /** Optional: enables the GPS track, altitude and road grade. */
+    val locationGranted: Boolean = false,
     val devices: List<BondedDevice> = emptyList(),
     val selectedDeviceAddress: String? = null,
     val obd: ObdConnectionState = ObdConnectionState.Disconnected,
@@ -27,7 +29,7 @@ data class DashboardUiState(
 }
 
 sealed interface DashboardEvent {
-    data class PermissionsChanged(val granted: Boolean) : DashboardEvent
+    data class PermissionsChanged(val granted: Boolean, val locationGranted: Boolean) : DashboardEvent
     data class DeviceSelected(val address: String) : DashboardEvent
     data object ConnectClicked : DashboardEvent
     data object DisconnectClicked : DashboardEvent

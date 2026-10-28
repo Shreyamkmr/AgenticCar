@@ -69,9 +69,15 @@ private fun requiredPermissions(): Array<String> = buildList {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) add(Manifest.permission.POST_NOTIFICATIONS)
 }.toTypedArray()
 
-private fun Context.hasAllPermissions(): Boolean = requiredPermissions().all {
-    ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
-}
+/** Asked for together with the required ones, but recording works without them (no GPS track). */
+private val optionalPermissions = arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+
+private fun Context.granted(permission: String) =
+    ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
+private fun Context.hasAllPermissions(): Boolean = requiredPermissions().all { granted(it) }
+
+private fun Context.hasLocationPermission(): Boolean = granted(Manifest.permission.ACCESS_FINE_LOCATION)
 
 @Composable
 fun DashboardRoute(
@@ -82,11 +88,11 @@ fun DashboardRoute(
     val context = LocalContext.current
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        viewModel.onEvent(DashboardEvent.PermissionsChanged(context.hasAllPermissions()))
+        viewModel.onEvent(DashboardEvent.PermissionsChanged(context.hasAllPermissions(), context.hasLocationPermission()))
     }
     // Re-check on every resume: the user may grant or revoke from system settings.
     LifecycleResumeEffect(Unit) {
-        viewModel.onEvent(DashboardEvent.PermissionsChanged(context.hasAllPermissions()))
+        viewModel.onEvent(DashboardEvent.PermissionsChanged(context.hasAllPermissions(), context.hasLocationPermission()))
         onPauseOrDispose { }
     }
 
@@ -106,7 +112,7 @@ fun DashboardRoute(
     DashboardScreen(
         state = state,
         onEvent = viewModel::onEvent,
-        onRequestPermissions = { launcher.launch(requiredPermissions()) },
+        onRequestPermissions = { launcher.launch(requiredPermissions() + optionalPermissions) },
         onOpenSettings = {
             context.startActivity(
                 Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
@@ -142,7 +148,14 @@ fun DashboardScreen(
             }
             ConnectionCard(state = state, onEvent = onEvent)
             GaugesCard(state = state)
-            if (state.recorder.sessionActive) RecordingCard(recorder = state.recorder)
+            if (state.recorder.sessionActive) {
+                RecordingCard(
+                    recorder = state.recorder,
+                    signals = state.liveSignals,
+                    locationGranted = state.locationGranted,
+                    onRequestPermissions = onRequestPermissions,
+                )
+            }
             McpCard(state = state, onEvent = onEvent, onOpenPublicAccess = onOpenPublicAccess)
             if (state.liveSignals.isNotEmpty()) LiveSignalsCard(signals = state.liveSignals)
         }
@@ -356,7 +369,13 @@ private fun publicSummary(state: DashboardUiState): String = when {
 }
 
 @Composable
-private fun RecordingCard(recorder: RecorderStatus, modifier: Modifier = Modifier) {
+private fun RecordingCard(
+    recorder: RecorderStatus,
+    signals: Map<Int, Double>,
+    locationGranted: Boolean,
+    onRequestPermissions: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Card(modifier = modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(stringResource(R.string.recording_title), style = MaterialTheme.typography.titleMedium)
@@ -383,6 +402,7 @@ private fun RecordingCard(recorder: RecorderStatus, modifier: Modifier = Modifie
             } else {
                 Text(stringResource(R.string.recording_waiting_engine), style = MaterialTheme.typography.bodyMedium)
             }
+            GpsLine(signals = signals, locationGranted = locationGranted, onRequestPermissions = onRequestPermissions)
             val dtcs = recorder.dtcStored + recorder.dtcPending.map { "$it*" }
             if (dtcs.isNotEmpty()) {
                 Text(
@@ -392,6 +412,36 @@ private fun RecordingCard(recorder: RecorderStatus, modifier: Modifier = Modifie
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun GpsLine(signals: Map<Int, Double>, locationGranted: Boolean, onRequestPermissions: () -> Unit) {
+    val altitude = signals[PidCatalog.ID_GPS_ALTITUDE]
+    when {
+        altitude != null -> {
+            val grade = signals[PidCatalog.ID_ROAD_GRADE]
+            val accuracy = signals[PidCatalog.ID_GPS_ACCURACY]
+            Text(
+                text = stringResource(
+                    R.string.gps_status,
+                    "%.0f".format(altitude),
+                    grade?.let { "%+.1f".format(it) } ?: stringResource(R.string.value_unknown),
+                    accuracy?.let { "%.0f".format(it) } ?: stringResource(R.string.value_unknown),
+                ),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        !locationGranted -> Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = stringResource(R.string.gps_off),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onRequestPermissions) { Text(stringResource(R.string.action_allow)) }
+        }
+        else -> Text(stringResource(R.string.gps_waiting), style = MaterialTheme.typography.bodyMedium)
     }
 }
 

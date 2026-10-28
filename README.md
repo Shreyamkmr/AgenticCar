@@ -18,6 +18,8 @@
 > 💬 *"Were there any harsh braking events last week, and at what speed?"*
 >
 > 💬 *"My long-term fuel trim looks high: plot it against load and tell me if it points to a vacuum leak."*
+>
+> 💬 *"How much harder does the engine work on the hills of my commute? Map the route and show where it struggles."*
 
 <p align="center">
   <img src="docs/images/dashboard.png" alt="Dashboard: live RPM and speed gauges, coolant, load and voltage, and the recording card showing 47 signals, the VIN and trouble codes" width="360">
@@ -47,7 +49,8 @@
 | 🔍 **Everything the ECU offers** | Asks the car which Mode 01 PIDs it supports and polls all of them: 120+ decoded signals from 90+ standard PIDs, plus raw storage for anything unknown. Also reads the VIN and stored, pending and permanent trouble codes. |
 | ⚡ **Built for slow adapters** | Tiered polling (250 ms for driving inputs, up to 5 min for constants) and up to **6 PIDs per request** on CAN cars, detected automatically. |
 | 🗜️ **Tiny, lossless-where-it-matters storage** | One-minute blocks per signal, delta + varint encoded at the ECU's native resolution with a small noise deadband: **~1 byte per reading**. Exact min/max/mean are kept for every minute. |
-| 🧠 **Made for AI analysis** | 8 MCP tools: trip summaries with derived insights, resampled time series, detected events (harsh braking, over-rev, overheating, DTC changes) and diagnostics. |
+| 🧠 **Made for AI analysis** | 9 MCP tools: trip summaries with derived insights, resampled time series, GPS routes, detected events (harsh braking, over-rev, overheating, DTC changes) and diagnostics. |
+| ⛰️ **GPS, elevation and road grade** | Optional 1 Hz GPS track with sea-level altitude and a noise-resistant road grade, so Claude can compare engine load, RPM and fuel use on climbs, flats and descents. |
 | 🌍 **Reach it from anywhere** | Wi-Fi with a short typeable code, or a public HTTPS URL through a **Cloudflare Tunnel that runs on the phone itself**: no PC or port forwarding needed. |
 | 🔐 **Secure by default** | Secret-path tokens, the Wi-Fi code is refused through any tunnel, public access is off until you switch it on, and the server never listens on the mobile network. |
 | 🧪 **Test without a car** | A built-in simulated ELM327 and ECU (debug builds) replays a realistic drive: discovery, multi-frame replies, a harsh brake, fault codes and a VIN. |
@@ -88,7 +91,7 @@ flowchart TB
 
 1. **Install** the APK from the [latest release](https://github.com/Shreyamkmr/AgenticCar/releases/latest) (allow installs from your browser or file manager).
 2. **Pair** your ELM327 adapter in Android's Bluetooth settings (PIN is usually `1234` or `0000`).
-3. **Open Agentic Car**, grant *Nearby devices* and *Notifications*, pick the adapter and tap **Connect**. With the ignition on, it discovers the car's signals and starts a trip when the engine runs.
+3. **Open Agentic Car**, grant *Nearby devices* and *Notifications* (and optionally *Location* for the GPS track), pick the adapter and tap **Connect**. With the ignition on, it discovers the car's signals and starts a trip when the engine runs.
 4. **No car handy?** Pick **Simulated ELM327** in the adapter list instead.
 
 The app records in a foreground service, so you can lock the phone and drive.
@@ -124,8 +127,9 @@ Public access starts the bundled `cloudflared` on the phone, so it keeps working
 | `get_vehicle_info` | VIN, OBD protocol, adapter, fuel type and every supported signal (key, name, unit, polling tier). |
 | `get_latest_metrics` | Live values of every signal, trip status and recorder statistics. |
 | `list_trips` | Trips, newest first: duration, distance, fuel used and L/100 km, max speed/RPM/coolant, idle share, average moving speed. |
-| `get_trip_summary` | Min/max/mean of every signal, event counts, and insights: time in speed and RPM bands, warm-up time to 80 °C, charging and resting voltage. Also works over any absolute time window. |
+| `get_trip_summary` | Min/max/mean of every signal, event counts, and insights: time in speed and RPM bands, warm-up time to 80 °C, charging and resting voltage, plus elevation (range, climb, descent) and engine load, RPM, fuel use and speed per road-grade band. Also works over any absolute time window. |
 | `get_signal_series` | Chosen signals resampled onto a shared time axis (mean, min or max per bucket), with zoom via `from_s`/`to_s`. |
+| `get_route` | The GPS track as rows of time, latitude, longitude, altitude, speed and road grade, with GPS distance and bounding box. |
 | `get_events` | Harsh braking/acceleration, over-rev, overheating, low charging voltage, MIL changes, and stored/pending/permanent/cleared DTCs. |
 | `get_diagnostics` | Current trouble codes, check-engine light, DTC count, distance and time with MIL on, and since codes were cleared. |
 | `get_storage_stats` | Trips, readings received vs samples stored, bytes per reading, database and WAL size. |
@@ -143,6 +147,10 @@ The server also sends instructions describing the data model and a suggested wor
 | Diagnostics | 60 s | Stored (`03`), pending (`07`) and permanent (`0A`) trouble codes |
 
 PIDs the car advertises but never answers are dropped after five attempts. Undecodable PIDs are stored raw as `pid_xx_raw`.
+
+### GPS and road grade
+
+With location permission, the phone's GPS adds `gps_latitude`, `gps_longitude`, `gps_altitude` (above sea level on Android 14+), `gps_speed`, `gps_bearing` and `gps_accuracy` at 1 Hz, plus a derived `road_grade`. GPS altitude is only good to ±5-15 m, so grade is never taken from consecutive fixes: altitude is smoothed over distance travelled (40 m), the slope is measured across at least 100 m, and fixes while stopped or with poor accuracy are ignored. On a constant slope this stays within about 1 % even with ±2 m altitude noise, and braking does not bias it. A position costs about 2 bytes.
 
 ## Storage format
 
@@ -220,7 +228,8 @@ Stack: Kotlin 2.4 · Jetpack Compose (Material 3) · Hilt · Room · Coroutines/
 - Mode 01 live data, Mode 03/07/0A trouble codes and Mode 09 VIN only; freeze-frame (Mode 02) and manufacturer-specific PIDs are not read yet.
 - Quick-tunnel URLs change on every start; use a named tunnel for a fixed URL.
 - The bundled tunnel binary is arm64-only.
-- Ideas: freeze-frame capture, CSV/Parquet export, data retention settings, GPS track alongside telemetry.
+- Road grade comes from GPS altitude, so short or gentle slopes are smoothed out; a phone barometer would sharpen it.
+- Ideas: freeze-frame capture, CSV/Parquet export, data retention settings, barometer-assisted altitude.
 
 Issues and pull requests are welcome.
 

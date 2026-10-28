@@ -64,6 +64,26 @@ object PidCatalog {
         ADAPTER_VOLTAGE_ID, "adapter_voltage", "Battery voltage at the OBD port (ELM327 AT RV)", "V", 0.1, 0.1,
     )
 
+    // Phone GPS, recorded alongside the ECU signals at ~1 Hz.
+    const val ID_GPS_LATITUDE = 0x3001
+    const val ID_GPS_LONGITUDE = 0x3002
+    const val ID_GPS_ALTITUDE = 0x3003
+    const val ID_GPS_SPEED = 0x3004
+    const val ID_GPS_BEARING = 0x3005
+    const val ID_GPS_ACCURACY = 0x3006
+    const val ID_ROAD_GRADE = 0x3007
+
+    val gpsSignals = listOf(
+        // 1e-6 degrees is ~0.1 m; deltas between 1 Hz fixes stay small, so this costs ~2 bytes per fix.
+        SignalDef(ID_GPS_LATITUDE, "gps_latitude", "GPS latitude", "°", 0.000001),
+        SignalDef(ID_GPS_LONGITUDE, "gps_longitude", "GPS longitude", "°", 0.000001),
+        SignalDef(ID_GPS_ALTITUDE, "gps_altitude", "Altitude above sea level (GPS, ±5-15 m)", "m", 0.1, 1.0),
+        SignalDef(ID_GPS_SPEED, "gps_speed", "GPS ground speed", "km/h", 0.1, 0.5),
+        SignalDef(ID_GPS_BEARING, "gps_bearing", "GPS heading (0 = north, clockwise)", "°", 1.0, 3.0),
+        SignalDef(ID_GPS_ACCURACY, "gps_accuracy", "GPS horizontal accuracy (68 % radius)", "m", 1.0, 2.0),
+        SignalDef(ID_ROAD_GRADE, "road_grade", "Road grade from smoothed GPS altitude over 100 m (+ = uphill)", "%", 0.1, 0.3),
+    )
+
     private val defs = ArrayList<PidDef>()
 
     init {
@@ -162,7 +182,8 @@ object PidCatalog {
     }
 
     val pids: Map<Int, PidDef> = defs.associateBy { it.pid }
-    private val signalsById: Map<Int, SignalDef> = (defs.flatMap { it.signals } + adapterVoltage).associateBy { it.id }
+    private val signalsById: Map<Int, SignalDef> =
+        (defs.flatMap { it.signals } + adapterVoltage + gpsSignals).associateBy { it.id }
     private val signalsByKey: Map<String, SignalDef> = signalsById.values.associateBy { it.key }
     private val rawKey = Regex("pid_([0-9a-f]{2})_raw")
 
@@ -180,6 +201,7 @@ object PidCatalog {
 
     fun tierOf(signalId: Int): PollTier = when {
         signalId == ADAPTER_VOLTAGE_ID -> PollTier.MEDIUM
+        signalId in ID_GPS_LATITUDE..ID_ROAD_GRADE -> PollTier.MEDIUM
         signalId < 0x200 -> pids[signalId and 0xFF]?.tier ?: PollTier.SLOW
         else -> PollTier.SLOW
     }

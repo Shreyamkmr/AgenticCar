@@ -35,6 +35,7 @@ class DashboardViewModel @Inject constructor(
 
     private data class LocalState(
         val permissionsGranted: Boolean = false,
+        val locationGranted: Boolean = false,
         val devices: List<BondedDevice> = emptyList(),
         val selectedDeviceAddress: String? = null,
     )
@@ -55,6 +56,7 @@ class DashboardViewModel @Inject constructor(
         combine(_local, telemetry, wifiMonitor.ipv4, mcpTokens.access, tunnel.state) { local, t, ip, access, tunnelState ->
             t.copy(
                 permissionsGranted = local.permissionsGranted,
+                locationGranted = local.locationGranted,
                 devices = local.devices,
                 selectedDeviceAddress = local.selectedDeviceAddress,
                 wifiIpv4 = ip,
@@ -65,7 +67,7 @@ class DashboardViewModel @Inject constructor(
 
     fun onEvent(event: DashboardEvent) {
         when (event) {
-            is DashboardEvent.PermissionsChanged -> onPermissionsChanged(event.granted)
+            is DashboardEvent.PermissionsChanged -> onPermissionsChanged(event.granted, event.locationGranted)
             is DashboardEvent.DeviceSelected -> _local.update { it.copy(selectedDeviceAddress = event.address) }
             DashboardEvent.ConnectClicked -> _local.value.selectedDeviceAddress?.let(serviceLauncher::connect)
             DashboardEvent.DisconnectClicked -> serviceLauncher.disconnect()
@@ -83,7 +85,7 @@ class DashboardViewModel @Inject constructor(
         }
     }
 
-    private fun onPermissionsChanged(granted: Boolean) {
+    private fun onPermissionsChanged(granted: Boolean, locationGranted: Boolean) {
         val adapter = appContext.getSystemService(BluetoothManager::class.java)?.adapter
         val bonded = if (granted) ObdBluetoothManager.bondedDevices(appContext, adapter) else emptyList()
         // Debug builds offer an in-app ELM327 so the full pipeline can be tested without a car.
@@ -91,6 +93,7 @@ class DashboardViewModel @Inject constructor(
         _local.update { current ->
             current.copy(
                 permissionsGranted = granted,
+                locationGranted = locationGranted,
                 devices = devices,
                 // Keep the user's pick; otherwise preselect something that looks like an ELM327.
                 selectedDeviceAddress = current.selectedDeviceAddress?.takeIf { addr -> devices.any { it.address == addr } }

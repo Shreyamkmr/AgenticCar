@@ -7,6 +7,7 @@ import com.example.agenticcar.data.db.SignalStatsRow
 import com.example.agenticcar.data.db.TelemetryDao
 import com.example.agenticcar.data.db.TelemetryDatabase
 import com.example.agenticcar.data.db.TripEntity
+import com.example.agenticcar.data.location.GradeEstimator
 import com.example.agenticcar.data.recording.BlockCodec
 import com.example.agenticcar.data.recording.DtcKind
 import com.example.agenticcar.protocol.obd.PidCatalog
@@ -37,6 +38,8 @@ import kotlinx.serialization.json.putJsonObject
 import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.ceil
+import kotlin.math.log10
 import kotlin.math.pow
 import kotlin.math.roundToLong
 
@@ -111,6 +114,17 @@ class ObdMcpTools @Inject constructor(
                 enumString("stat", "Aggregate per bucket (default mean).", listOf("mean", "min", "max"))
             },
         ) { request -> tool { signalSeries(request.arguments) } }
+
+        server.addTool(
+            name = "get_route",
+            description = "GPS track of a trip, resampled to at most max_points: rows of [t_s, latitude, longitude, " +
+                "altitude_m, gps_speed_kmh, road_grade_pct] plus GPS distance, bounding box and altitude range. " +
+                "Use it to map the route or relate engine behaviour to hills (combine with get_signal_series).",
+            inputSchema = schema(required = emptyList()) {
+                number("trip_id", "Trip id. Defaults to the latest trip.")
+                number("max_points", "Track points to return, 2-2000 (default 300).")
+            },
+        ) { request -> tool { route(request.arguments.long("trip_id"), request.arguments.int("max_points") ?: 300) } }
 
         server.addTool(
             name = "get_events",
@@ -210,6 +224,29 @@ class ObdMcpTools @Inject constructor(
                 put("warm_up_minutes_to_80c", insights.warmUpMinutesTo80C?.let(::round2))
                 put("charging_voltage_mean", insights.chargingVoltageMean?.let(::round2))
                 put("resting_voltage_min", insights.restingVoltageMin?.let(::round2))
+                val elevation = insights.elevation
+                if (elevation == null) {
+                    put("elevation", "no GPS recorded for this trip")
+                } else {
+                    putJsonObject("elevation") {
+                        put("min_altitude_m", round(elevation.minAltitudeM, 1.0))
+                        put("max_altitude_m", round(elevation.maxAltitudeM, 1.0))
+                        put("climb_m", round(elevation.climbM, 1.0))
+                        put("descent_m", round(elevation.descentM, 1.0))
+                        putJsonObject("by_road_grade") {
+                            elevation.gradeBands.forEach { (band, g) ->
+                                putJsonObject(band) {
+                                    put("minutes", round2(g.minutes))
+                                    put("mean_engine_load_pct", g.meanEngineLoadPct?.let { round(it, 0.1) })
+                                    put("mean_rpm", g.meanRpm?.let { round(it, 1.0) })
+                                    put("mean_fuel_rate_l_h", g.meanFuelRateLh?.let(::round2))
+                                    put("mean_maf_g_s", g.meanMafGs?.let(::round2))
+                                    put("mean_speed_kmh", g.meanSpeedKmh?.let { round(it, 0.1) })
+                                }
+                            }
+                        }
+                    }
+                }
             }
             putJsonObject("event_counts") { eventCounts.forEach { put(it.type, it.count) } }
             put("signals", statsJson(stats))
@@ -257,6 +294,68 @@ class ObdMcpTools @Inject constructor(
             }
             putJsonObject("units") { defs.forEach { put(it.key, it.unit) } }
             if (unknown.isNotEmpty()) putJsonArray("unknown_signals") { unknown.forEach { add(it) } }
+        }
+    }
+
+    private suspend fun route(tripId: Long?, maxPoints: Int): JsonObject {
+        val trip = tripId?.let { dao.trip(it) } ?: dao.recentTrips(1).firstOrNull()
+            ?: return buildJsonObject { put("error", "No trips recorded yet") }
+        val end = queries.tripEndMs(trip)
+        val ids = listOf(
+            PidCatalog.ID_GPS_LATITUDE, PidCatalog.ID_GPS_LONGITUDE, PidCatalog.ID_GPS_ALTITUDE,
+            PidCatalog.ID_GPS_SPEED, PidCatalog.ID_ROAD_GRADE,
+        )
+        val s = queries.series(trip.id, ids, 0, end + 1)
+        val lat = s[PidCatalog.ID_GPS_LATITUDE].orEmpty()
+        val lon = s[PidCatalog.ID_GPS_LONGITUDE].orEmpty()
+        if (lat.isEmpty() || lon.isEmpty()) return buildJsonObject {
+            put("trip_id", trip.id)
+            put("error", "No GPS recorded for this trip (location permission off, or no fix).")
+        }
+
+        // Distance over the full-resolution track, pairing each latitude with the longitude held at that time.
+        var distanceM = 0.0
+        var prev: Pair<Double, Double>? = null
+        for (p in lat) {
+            val lo = TelemetryQueries.valueAt(lon, p.tMs) ?: continue
+            prev?.let { (pLat, pLon) -> distanceM += GradeEstimator.haversineM(pLat, pLon, p.value, lo) }
+            prev = p.value to lo
+        }
+
+        val buckets = maxPoints.coerceIn(2, 2000)
+        val columns = ids.map { id -> TelemetryQueries.resample(s[id].orEmpty(), 0, end + 1, buckets, "mean") }
+        val width = (end + 1) / buckets.toDouble()
+        val altitudes = s[PidCatalog.ID_GPS_ALTITUDE].orEmpty().map { it.value }
+        return buildJsonObject {
+            put("trip_id", trip.id)
+            put("gps_distance_km", round2(distanceM / 1000))
+            put("columns", buildJsonArray {
+                listOf("t_s", "latitude", "longitude", "altitude_m", "gps_speed_kmh", "road_grade_pct").forEach { add(it) }
+            })
+            putJsonArray("points") {
+                for (b in 0 until buckets) {
+                    val la = columns[0][b] ?: continue
+                    val lo = columns[1][b] ?: continue
+                    add(buildJsonArray {
+                        add(round2(b * width / 1000))
+                        add(round(la, 0.000001))
+                        add(round(lo, 0.000001))
+                        add(columns[2][b]?.let { round(it, 1.0) })
+                        add(columns[3][b]?.let { round(it, 1.0) })
+                        add(columns[4][b]?.let { round(it, 0.1) })
+                    })
+                }
+            }
+            putJsonObject("bounding_box") {
+                put("min_lat", round(lat.minOf { it.value }, 0.000001))
+                put("max_lat", round(lat.maxOf { it.value }, 0.000001))
+                put("min_lon", round(lon.minOf { it.value }, 0.000001))
+                put("max_lon", round(lon.maxOf { it.value }, 0.000001))
+            }
+            if (altitudes.isNotEmpty()) {
+                put("min_altitude_m", round(altitudes.min(), 1.0))
+                put("max_altitude_m", round(altitudes.max(), 1.0))
+            }
         }
     }
 
@@ -410,19 +509,18 @@ class ObdMcpTools @Inject constructor(
             and threshold crossings.
             Suggested workflow: get_vehicle_info (signal keys) -> list_trips -> get_trip_summary(trip_id) ->
             get_signal_series for detail (start with max_points ~100, then zoom with from_s/to_s) -> get_events and
-            get_diagnostics for faults. Fuel trims: stft/ltft beyond about ±10% suggest a mixture problem; coolant should
-            settle near 85-105 °C; charging voltage should be about 13.5-14.7 V with the engine running.
+            get_diagnostics for faults. When the phone had a GPS fix, trips also hold gps_latitude/longitude/altitude,
+            gps_speed and road_grade (% over 100 m, + = uphill): get_route returns the track, and get_trip_summary
+            compares engine load, RPM and fuel use across slope bands. GPS altitude is accurate to ±5-15 m, so trust
+            grades over hundreds of metres, not single points. Fuel trims: stft/ltft beyond about ±10% suggest a
+            mixture problem; coolant should settle near 85-105 °C; charging voltage should be about 13.5-14.7 V with
+            the engine running.
         """.trimIndent()
 
         fun round(v: Double?, resolution: Double): Double? {
             if (v == null || !v.isFinite()) return null
-            val decimals = when {
-                resolution >= 1.0 -> 0
-                resolution >= 0.1 -> 1
-                resolution >= 0.01 -> 2
-                resolution >= 0.001 -> 3
-                else -> 4
-            }
+            // Enough decimals to show the stored resolution: 1e-6° GPS coordinates need 6 (~0.1 m).
+            val decimals = ceil(-log10(resolution) - 1e-9).toInt().coerceIn(0, 7)
             val f = 10.0.pow(decimals)
             return (v * f).roundToLong() / f
         }

@@ -96,6 +96,90 @@ class TelemetryQueries @Inject constructor(private val dao: TelemetryDao) {
             warmUpMinutesTo80C = warmUpMinutes,
             chargingVoltageMean = if (chargingCount > 0) chargingSum / chargingCount else null,
             restingVoltageMin = restingMin,
+            elevation = elevationInsights(trip.id, end, speed, rpm),
+        )
+    }
+
+    /**
+     * Elevation profile and how the engine behaved on each kind of slope, or null without GPS.
+     * Per-band engine figures are time-weighted samples of the step-hold series at each grade point.
+     */
+    private suspend fun elevationInsights(tripId: Long, endMs: Int, speed: List<Point>, rpm: List<Point>): ElevationInsights? {
+        val ids = listOf(PidCatalog.ID_GPS_ALTITUDE, PidCatalog.ID_ROAD_GRADE, PidCatalog.ID_ENGINE_LOAD, PidCatalog.ID_FUEL_RATE, PidCatalog.ID_MAF)
+        val s = series(tripId, ids, 0, endMs + 1)
+        val altitude = s[PidCatalog.ID_GPS_ALTITUDE].orEmpty()
+        if (altitude.isEmpty()) return null
+        val grade = s[PidCatalog.ID_ROAD_GRADE].orEmpty()
+        val load = s[PidCatalog.ID_ENGINE_LOAD].orEmpty()
+        val fuelRate = s[PidCatalog.ID_FUEL_RATE].orEmpty()
+        val maf = s[PidCatalog.ID_MAF].orEmpty()
+
+        // Climb/descent with hysteresis, so GPS noise does not add up to phantom metres.
+        var gain = 0.0
+        var loss = 0.0
+        var anchor = altitude.first().value
+        for (p in altitude) {
+            val delta = p.value - anchor
+            if (delta >= ELEVATION_HYSTERESIS_M) {
+                gain += delta
+                anchor = p.value
+            } else if (delta <= -ELEVATION_HYSTERESIS_M) {
+                loss -= delta
+                anchor = p.value
+            }
+        }
+
+        val bands = linkedMapOf<String, BandAccumulator>()
+        GRADE_BANDS.forEach { (name, _) -> bands[name] = BandAccumulator() }
+        for (i in grade.indices) {
+            val p = grade[i]
+            val next = if (i + 1 < grade.size) grade[i + 1].tMs else endMs
+            val heldMs = min(next - p.tMs, HOLD_MS)
+            if (heldMs <= 0) continue
+            val band = GRADE_BANDS.first { (_, upper) -> p.value < upper }.first
+            bands.getValue(band).add(
+                ms = heldMs,
+                load = valueAt(load, p.tMs),
+                rpm = valueAt(rpm, p.tMs),
+                fuel = valueAt(fuelRate, p.tMs),
+                maf = valueAt(maf, p.tMs),
+                speed = valueAt(speed, p.tMs),
+            )
+        }
+
+        return ElevationInsights(
+            minAltitudeM = altitude.minOf { it.value },
+            maxAltitudeM = altitude.maxOf { it.value },
+            climbM = gain,
+            descentM = loss,
+            gradeBands = bands.mapValues { (_, acc) -> acc.result() },
+        )
+    }
+
+    private class BandAccumulator {
+        private var ms = 0L
+        private val sums = DoubleArray(5)
+        private val weights = LongArray(5)
+
+        fun add(ms: Int, load: Double?, rpm: Double?, fuel: Double?, maf: Double?, speed: Double?) {
+            this.ms += ms
+            listOf(load, rpm, fuel, maf, speed).forEachIndexed { i, v ->
+                if (v != null) {
+                    sums[i] += v * ms
+                    weights[i] += ms.toLong()
+                }
+            }
+        }
+
+        private fun mean(i: Int) = if (weights[i] > 0) sums[i] / weights[i] else null
+
+        fun result() = GradeBand(
+            minutes = ms / 60_000.0,
+            meanEngineLoadPct = mean(0),
+            meanRpm = mean(1),
+            meanFuelRateLh = mean(2),
+            meanMafGs = mean(3),
+            meanSpeedKmh = mean(4),
         )
     }
 
@@ -114,12 +198,40 @@ class TelemetryQueries @Inject constructor(private val dao: TelemetryDao) {
         val warmUpMinutesTo80C: Double?,
         val chargingVoltageMean: Double?,
         val restingVoltageMin: Double?,
+        val elevation: ElevationInsights?,
+    )
+
+    data class ElevationInsights(
+        val minAltitudeM: Double,
+        val maxAltitudeM: Double,
+        val climbM: Double,
+        val descentM: Double,
+        val gradeBands: Map<String, GradeBand>,
+    )
+
+    data class GradeBand(
+        val minutes: Double,
+        val meanEngineLoadPct: Double?,
+        val meanRpm: Double?,
+        val meanFuelRateLh: Double?,
+        val meanMafGs: Double?,
+        val meanSpeedKmh: Double?,
     )
 
     companion object {
         /** A stored value is held at most this long; beyond it the signal is treated as missing. */
         const val HOLD_MS = TelemetryRecorder.HEARTBEAT_MS + 5_000
         private const val WARM_COOLANT_C = 80.0
+        private const val ELEVATION_HYSTERESIS_M = 3.0
+
+        /** Band name to exclusive upper bound of road grade in percent. */
+        private val GRADE_BANDS = listOf(
+            "steep_descent_below_-6" to -6.0,
+            "descent_-6_to_-2" to -2.0,
+            "flat_-2_to_2" to 2.0,
+            "climb_2_to_6" to 6.0,
+            "steep_climb_above_6" to Double.POSITIVE_INFINITY,
+        )
 
         /** Step-hold value at [tMs], or null if the last point is older than [HOLD_MS]. */
         fun valueAt(points: List<Point>, tMs: Int): Double? {
