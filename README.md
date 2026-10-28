@@ -13,9 +13,11 @@
 
 **Agentic Car** turns an Android phone and a cheap ELM327 Bluetooth adapter into a full-fidelity car data logger, then lets Claude read it. While you drive, it records **every signal your car's ECU supports**, compressed to about a byte per reading. Later, from your desk or anywhere, you switch on the phone's built-in **MCP server** and ask Claude about your trips.
 
-> *"How did the engine warm up on this morning's drive?"*
-> *"Were there any harsh braking events last week, and at what speed?"*
-> *"My long-term fuel trim looks high: plot it against load and tell me if it points to a vacuum leak."*
+> 💬 *"How did the engine warm up on this morning's drive?"*
+>
+> 💬 *"Were there any harsh braking events last week, and at what speed?"*
+>
+> 💬 *"My long-term fuel trim looks high: plot it against load and tell me if it points to a vacuum leak."*
 
 <p align="center">
   <img src="docs/images/dashboard.png" alt="Dashboard: live RPM and speed gauges, coolant, load and voltage, and the recording card showing 47 signals, the VIN and trouble codes" width="360">
@@ -53,27 +55,29 @@
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TB
     subgraph Car
-        ECU[Engine ECU]
-        ELM[ELM327<br/>Bluetooth adapter]
-        ECU <-->|OBD-II / CAN| ELM
+        direction LR
+        ECU[Engine ECU] <-->|OBD-II / CAN| ELM[ELM327 Bluetooth adapter]
     end
 
-    subgraph Phone["Android phone (foreground service)"]
-        SES["ObdSession<br/>discovery · tiered polling<br/>6-PID batches"]
-        REC["TelemetryRecorder<br/>trips · events · compression"]
-        DB[("Room / SQLite (WAL)<br/>trips · signal_blocks · events")]
-        MCP["MCP server<br/>Ktor + Netty<br/>Streamable HTTP"]
-        CF["cloudflared<br/>(Android-patched)"]
-        SES --> REC -->|1 s batches| DB
-        DB --> MCP
-        MCP --- CF
+    subgraph Phone["Android phone · foreground service"]
+        direction LR
+        SES["ObdSession<br/>discovery, tiered polling,<br/>6-PID batches"] --> REC["TelemetryRecorder<br/>trips, events,<br/>compression"]
+        REC -->|1 s batches| DB[("Room / SQLite<br/>trips · signal_blocks · events")]
+        DB --> MCP["MCP server<br/>Ktor + Netty<br/>Streamable HTTP"]
+        MCP --- CF["cloudflared<br/>Android-patched"]
+    end
+
+    subgraph Clients["Claude"]
+        direction LR
+        CC[Claude Code]
+        WEB["claude.ai<br/>web #amp; mobile"]
     end
 
     ELM <-->|Bluetooth SPP| SES
-    MCP -->|"Wi-Fi: http://phone:8080/mcp/#lt;code#gt;"| CC[Claude Code]
-    CF -->|"https://…/mcp/#lt;long token#gt;"| WEB["claude.ai<br/>web #amp; mobile"]
+    MCP -->|"Wi-Fi · /mcp/#lt;code#gt;"| CC
+    CF -->|"HTTPS · /mcp/#lt;long token#gt;"| WEB
 ```
 
 1. **Connect.** The app opens a Bluetooth SPP link to the adapter, initialises it (`ATZ`, `ATE0`, `ATL0`, `ATS0`, `ATH0`, `AT SP 0`) and walks the `0100`/`0120`/… bitmaps to find every supported PID.
