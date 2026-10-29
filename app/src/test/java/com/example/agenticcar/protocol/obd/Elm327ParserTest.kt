@@ -31,8 +31,8 @@ class Elm327ParserTest {
 
     @Test
     fun multiPid_isoTpMultiFrame_trimsPadding() {
-        // 0x0E = 14 bytes; last frame padded with zeros.
-        val response = "00E\r0: 41 0C 1A F8 0D 58\r1: 05 5A 04 FF 11 33 00\r\r>"
+        // 0x0C = 12 bytes; last frame padded with a zero.
+        val response = "00C\r0: 41 0C 1A F8 0D 58\r1: 05 5A 04 FF 11 33 00\r\r>"
         val parsed = Elm327Parser.mode01(response, listOf(0x0C, 0x0D, 0x05, 0x04, 0x11))
         assertEquals(setOf(0x0C, 0x0D, 0x05, 0x04, 0x11), parsed.keys)
         assertArrayEquals(intArrayOf(0x33), parsed[0x11])
@@ -40,9 +40,22 @@ class Elm327ParserTest {
 
     @Test
     fun multiFrame_compactSpacesOff() {
-        val parsed = Elm327Parser.mode01("00E\r0:410C1AF80D58\r1:055A04FF113300\r\r>", listOf(0x0C, 0x11))
+        val parsed = Elm327Parser.mode01("00C\r0:410C1AF80D58\r1:055A04FF113300\r\r>", listOf(0x0C, 0x11))
         assertArrayEquals(intArrayOf(0x1A, 0xF8), parsed[0x0C])
         assertArrayEquals(intArrayOf(0x33), parsed[0x11])
+    }
+
+    @Test
+    fun multiFrame_lostMiddleFrame_isDropped() {
+        // Frame 1 lost over Bluetooth: joining 0 and 2 would read padding and other PIDs' bytes as values.
+        val response = "014\r0: 41 0C 1A F8 0D 58\r2: 33 0B 1E 0E 90 00 00\r\r>"
+        assertTrue(Elm327Parser.mode01(response, listOf(0x0C, 0x0D, 0x11, 0x0B, 0x0E)).isEmpty())
+    }
+
+    @Test
+    fun multiFrame_truncatedLastFrame_isDropped() {
+        val response = "00E\r0: 41 0C 1A F8 0D 58\r1: 05 5A\r\r>"
+        assertTrue(Elm327Parser.mode01(response, listOf(0x0C, 0x0D, 0x05, 0x04, 0x11)).isEmpty())
     }
 
     @Test

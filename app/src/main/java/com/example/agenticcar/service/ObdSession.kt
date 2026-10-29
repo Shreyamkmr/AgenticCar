@@ -32,15 +32,7 @@ class ObdSession(
     private enum class Kind { MODE01, VOLTAGE, DTCS }
 
     /** Largest believable change between two consecutive polls; bigger jumps need confirming. */
-    private val spikes = SpikeFilter(
-        mapOf(
-            PidCatalog.ID_RPM to 1_500.0,
-            PidCatalog.ID_SPEED to 30.0,
-            PidCatalog.ID_TIMING_ADVANCE to 25.0,
-            PidCatalog.ID_COOLANT to 15.0,
-            PidCatalog.ID_INTAKE_AIR_TEMP to 15.0,
-        ),
-    )
+    private val spikes = SpikeFilter(SpikeFilter.OBD_RULES)
 
     private class Task(val kind: Kind, val pid: Int, val periodMillis: Long, val priority: Int, val decodable: Boolean) {
         var nextDue = 0L
@@ -77,8 +69,7 @@ class ObdSession(
         val supported = sortedSetOf<Int>()
         var base = 0x00
         while (base <= 0xE0) {
-            val response = query(ObdCommand.mode01(listOf(base)), ObdCommand.DISCOVERY_TIMEOUT_MS) ?: break
-            val pids = Elm327Parser.supportedPids(response, base)
+            val pids = supportedPidsAt(base)
             if (pids.isEmpty()) break
             supported += pids
             // The last bit of each bitmap says whether the next range exists.
@@ -86,6 +77,22 @@ class ObdSession(
             base += 0x20
         }
         return supported.filterNot(PidCatalog::isBitmapPid).toSortedSet()
+    }
+
+    /**
+     * One `01 <base>` bitmap, retried when the reply timed out or came back garbled. A lost reply
+     * used to end discovery early, so the same car showed 28, 33, 38 or 54 signals per connection.
+     * A definite answer that the range is unsupported ends it immediately.
+     */
+    private suspend fun supportedPidsAt(base: Int): Set<Int> {
+        repeat(DISCOVERY_ATTEMPTS) {
+            val response = query(ObdCommand.mode01(listOf(base)), ObdCommand.DISCOVERY_TIMEOUT_MS) ?: return@repeat
+            val pids = Elm327Parser.supportedPids(response, base)
+            if (pids.isNotEmpty()) return pids
+            val text = Elm327Parser.clean(response)
+            if (DEFINITE_NO_ANSWER.any { text.contains(it) }) return emptySet()
+        }
+        return emptySet()
     }
 
     /**
@@ -119,8 +126,13 @@ class ObdSession(
         val candidates = known.filter { PidCatalog.pids.getValue(it).tier == PollTier.FAST }.take(MAX_BATCH)
             .ifEmpty { known.take(MAX_BATCH) }
         if (candidates.size < 2) return 1
-        val response = query(ObdCommand.mode01(candidates), ObdCommand.DISCOVERY_TIMEOUT_MS) ?: return 1
-        val answered = Elm327Parser.mode01(response, candidates).keys.count { it in candidates }
+        // Best of a few probes: one lost reply used to drop a whole session to one PID per request.
+        var answered = 0
+        for (attempt in 1..DISCOVERY_ATTEMPTS) {
+            val response = query(ObdCommand.mode01(candidates), ObdCommand.DISCOVERY_TIMEOUT_MS) ?: continue
+            answered = maxOf(answered, Elm327Parser.mode01(response, candidates).keys.count { it in candidates })
+            if (answered == candidates.size) break
+        }
         return when {
             answered == candidates.size -> MAX_BATCH
             answered >= 2 -> answered
@@ -236,5 +248,9 @@ class ObdSession(
         const val MAX_MISSES = 5
         const val MAX_SILENT_REQUESTS = 12
         const val DTC_PERIOD_MS = 60_000L
+        const val DISCOVERY_ATTEMPTS = 3
+
+        /** ELM327 replies meaning no ECU supports the request, as opposed to a lost or garbled reply. */
+        val DEFINITE_NO_ANSWER = listOf("NO DATA", "UNABLE TO CONNECT", "?")
     }
 }

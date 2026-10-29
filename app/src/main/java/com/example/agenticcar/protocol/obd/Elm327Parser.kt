@@ -19,18 +19,30 @@ object Elm327Parser {
     private val BYTE_COUNT = Regex("^[0-9A-F]{3}$")
     private val VOLTAGE = Regex("""(\d{1,2}(?:\.\d{1,2})?)\s*V?""", RegexOption.IGNORE_CASE)
 
-    /** Splits a response into one byte array per ECU message, joining multi-frame lines. */
+    /**
+     * Splits a response into one byte array per ECU message, joining multi-frame lines.
+     * A multi-frame message with a missing or out-of-order frame, or fewer bytes than its count
+     * announced, is dropped: decoding it would read one PID's bytes as another's value.
+     */
     fun messages(response: String): List<IntArray> {
         val out = ArrayList<IntArray>()
         var frames: ArrayList<Int>? = null
         var expected = -1
+        var lastIndex = -1
+        var broken = false
 
         fun finishMultiFrame() {
             frames?.let { bytes ->
-                out += (if (expected in 1..bytes.size) bytes.subList(0, expected) else bytes).toIntArray()
+                when {
+                    broken || (expected > 0 && bytes.size < expected) -> Unit
+                    expected > 0 -> out += bytes.subList(0, expected).toIntArray()
+                    else -> out += bytes.toIntArray()
+                }
             }
             frames = null
             expected = -1
+            lastIndex = -1
+            broken = false
         }
 
         for (line in clean(response).lines()) {
@@ -44,10 +56,14 @@ object Elm327Parser {
                     frames = ArrayList()
                 }
                 frame != null -> {
-                    val bytes = hexBytes(frame.groupValues[2]) ?: continue
-                    if (frame.groupValues[1] == "0" && frames?.isNotEmpty() == true) finishMultiFrame()
+                    val index = frame.groupValues[1].toInt(16)
+                    if (index == 0 && frames?.isNotEmpty() == true) finishMultiFrame()
                     val target = frames ?: ArrayList<Int>().also { frames = it }
-                    bytes.forEach { target += it }
+                    // Frame indices count 0, 1, ... F, 0 (ISO-TP sequence numbers wrap at 16).
+                    if (index != (lastIndex + 1) % 16) broken = true
+                    lastIndex = index
+                    val bytes = hexBytes(frame.groupValues[2])
+                    if (bytes == null) broken = true else bytes.forEach { target += it }
                 }
                 else -> {
                     val bytes = hexBytes(compact) ?: continue
