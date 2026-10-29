@@ -62,6 +62,7 @@
 - [Build from source](#build-from-source)
 - [Project layout](#project-layout)
 - [Limitations and roadmap](#limitations-and-roadmap)
+- [Support the project](#support-the-project)
 - [License](#license)
 
 ## Highlights
@@ -333,6 +334,10 @@ Stack: Kotlin 2.4 · Jetpack Compose (Material 3) · Hilt · Room · Coroutines/
 - Ideas: freeze-frame capture, CSV/Parquet export, data retention settings, barometer-assisted altitude, an optional OpenStreetMap background.
 
 Issues and pull requests are welcome.
+
+## Support the project
+
+Agentic Car is free and open source. If it helped you understand your car, consider [sponsoring its development on GitHub](https://github.com/sponsors/Shreyamkmr) ❤️. A ⭐ on the repository or a share also helps others find it.
 
 ## License
 
