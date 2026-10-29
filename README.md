@@ -11,7 +11,32 @@
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/Shreyamkmr/AgenticCar?style=flat-square"></a>
 </p>
 
-**Agentic Car** turns an Android phone and a cheap ELM327 Bluetooth adapter into a full-fidelity car data logger, then lets Claude read it. While you drive, it records **every signal your car's ECU supports**, compressed to about a byte per reading. Later, from your desk or anywhere, you switch on the phone's built-in **MCP server** and ask Claude about your trips.
+**Agentic Car** turns an Android phone and a cheap ELM327 Bluetooth adapter into a full-fidelity car data logger with dashboards you design yourself, then lets Claude read it. While you drive, it records **every signal your car's ECU supports**, compressed to about a byte per reading. Lay out live dials, trends and a GPS route map however you like, replay any trip through the same tiles, and switch on the phone's built-in **MCP server** to ask Claude about your drives.
+
+<p align="center">
+  <img src="docs/images/screens/analysis-cockpit.png" alt="Cockpit layout in landscape: a 14-minute trip with average 1814 rpm (peak 5306), coolant 71 °C, throttle 19 % and speed 28 km/h (max 98)" width="100%">
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/screens/analysis-route.png" alt="Route &amp; terrain: the GPS track coloured by speed from teal to rose, with a 1 km scale bar, speed, an altitude trend and road grade"></td>
+    <td width="50%"><img src="docs/images/screens/analysis-engine-health.png" alt="Engine health: coolant dial, short and long fuel trim, manifold pressure and timing trends, battery and intake air, and four warning lamps"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Route &amp; terrain</b>: the drive coloured by speed, with altitude and grade</td>
+    <td align="center"><b>Engine health</b>: temperatures, fuel trims, ignition and warning lamps</td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/screens/analysis-performance.png" alt="Performance: a large rev counter with throttle and speed traces, engine load and ignition timing"></td>
+    <td><img src="docs/images/screens/analysis-economy.png" alt="Economy: the route coloured by estimated fuel rate, a fuel-rate dial at 3.51 L/h, RPM and speed"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Performance</b>: rev counter with throttle and speed traces</td>
+    <td align="center"><b>Economy</b>: where the fuel went, on the map and on a dial</td>
+  </tr>
+</table>
+
+<p align="center"><sub>Real data from a 14-minute drive in a Peugeot 208 1.2, shown in the Analysis page with the built-in templates.</sub></p>
 
 > 💬 *"How did the engine warm up on this morning's drive?"*
 >
@@ -21,15 +46,12 @@
 >
 > 💬 *"How much harder does the engine work on the hills of my commute? Map the route and show where it struggles."*
 
-<p align="center">
-  <img src="docs/images/dashboard.png" alt="Dashboard: live RPM and speed gauges, coolant, load and voltage, and the recording card showing 47 signals, the VIN and trouble codes" width="360">
-</p>
-
 ---
 
 ## Contents
 
 - [Highlights](#highlights)
+- [Dashboards and analysis](#dashboards-and-analysis)
 - [How it works](#how-it-works)
 - [Quick start](#quick-start)
 - [Connect Claude](#connect-claude)
@@ -46,6 +68,10 @@
 
 | | |
 |---|---|
+| 🎛️ **Dashboards you design** | A snap-to-grid Board of gauges, trends, values, bars, warning lamps and a route map for any signal. Drag to move, pull a corner to resize, with separate portrait and landscape arrangements and five ready-made templates. |
+| 📊 **Replay any drive** | Pick trips or a time range and the same tiles show averages, min–max bands, full-trip trends and whether a lamp ever lit. |
+| 🗺️ **Route maps without a map SDK** | The GPS track drawn on the phone, coloured by speed, fuel use or any signal, with a scale bar. No API key, no network. |
+| 🎨 **Make it yours** | Light, dark or system theme, seven colour palettes (or your wallpaper's Material You colours), vibrant or calm, and pure black for night driving. |
 | 🔍 **Everything the ECU offers** | Asks the car which Mode 01 PIDs it supports and polls all of them: 120+ decoded signals from 90+ standard PIDs, plus raw storage for anything unknown. Also reads the VIN and stored, pending and permanent trouble codes. |
 | ⚡ **Built for slow adapters** | Tiered polling (250 ms for driving inputs, up to 5 min for constants) and up to **6 PIDs per request** on CAN cars, detected automatically. |
 | 🗜️ **Tiny, lossless-where-it-matters storage** | One-minute blocks per signal, delta + varint encoded at the ECU's native resolution with a small noise deadband: **~1 byte per reading**. Exact min/max/mean are kept for every minute. |
@@ -53,7 +79,57 @@
 | ⛰️ **GPS, elevation and road grade** | Optional 1 Hz GPS track with sea-level altitude and a noise-resistant road grade, so Claude can compare engine load, RPM and fuel use on climbs, flats and descents. |
 | 🌍 **Reach it from anywhere** | Wi-Fi with a short typeable code, or a public HTTPS URL through a **Cloudflare Tunnel that runs on the phone itself**: no PC or port forwarding needed. |
 | 🔐 **Secure by default** | Secret-path tokens, the Wi-Fi code is refused through any tunnel, public access is off until you switch it on, and the server never listens on the mobile network. |
-| 🧪 **Test without a car** | A built-in simulated ELM327 and ECU (debug builds) replays a realistic drive: discovery, multi-frame replies, a harsh brake, fault codes and a VIN. |
+| 🧪 **Test without a car** | A built-in simulated ELM327 and ECU, behind an in-app **Developer mode** switch (off by default), replays a realistic drive: discovery, multi-frame replies, a harsh brake, fault codes and a VIN. |
+
+## Dashboards and analysis
+
+The app has three tabs: **Logger** (connection, recording, MCP server and settings), **Board** (your live dashboard) and **Analysis** (any past drive through the same tiles). Held sideways, the tabs move to a side rail so a whole board fits on one screen.
+
+### Board
+
+A board is a grid of tiles: 4 columns in portrait and 8 in landscape, each orientation arranged separately. Every tile shows one signal in one of six styles:
+
+| Style | Live | In Analysis |
+|---|---|---|
+| **Gauge** | 270° dial with a gradient sweep, red near the top of its range | Average, with the min–max band and a peak marker |
+| **Trend** | The last 2 minutes | The whole selection, peaks preserved, gaps between trips squeezed out |
+| **Value** | Big number, with the 5-minute min and max | Average, min and max |
+| **Bar** | Fill bar | Average fill with min and max markers |
+| **Lamp** | Warning light at a threshold you choose | Whether it lit at any point |
+| **Route** | The last 5 minutes of GPS track, with a heading arrow | The whole drive, start to finish, coloured by the tile's signal |
+
+Tap **Edit**, then long-press a tile to drag it, pull its corner to resize it, or tap it to change its signal, style or range. Tiles snap to the grid, and a ghost outline turns red where a tile would overlap. Layouts are named and saved on the phone; save a copy, rename or delete from the layout menu.
+
+### Templates
+
+Five ready-made layouts are added on first launch and can be added again from **layout menu → Add a template…**. Each has a hand-made landscape arrangement that fits one screen without scrolling, and a portrait one that scrolls.
+
+| Template | What it shows |
+|---|---|
+| **Cockpit** | Big RPM and speed dials with coolant, throttle and load between them |
+| **Route & terrain** | Route coloured by speed, with altitude and road grade |
+| **Engine health** | Coolant, short and long fuel trims, manifold pressure, timing, battery, intake air and four warning lamps |
+| **Economy** | Route coloured by fuel use, a fuel-rate dial and trend, RPM and speed |
+| **Performance** | Large rev counter, throttle and speed traces, load and timing |
+
+### Analysis
+
+Choose **trips** (sub-minute fragments are hidden) or a **time range** (last hour, today, yesterday, last 7 days or any dates and times), pick a layout and tap **Analyse**. Averages are time-weighted, since stored data is dense where values change and sparse where they hold steady. Readings from trips recorded before the current spike rules are cleaned the same way as live data. Switching layouts after a run is instant.
+
+### Appearance
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/screens/layouts-menu.png" alt="The layout menu open over the Performance analysis, listing Main, Cockpit, Route &amp; terrain, Engine health, Economy and Performance"></td>
+    <td width="50%"><img src="docs/images/screens/appearance.png" alt="Appearance settings: System, Light and Dark, seven palette swatches, and Vibrant colours and Pure black switches"></td>
+  </tr>
+  <tr>
+    <td align="center">Switch layouts from the top bar</td>
+    <td align="center">Theme, palette, vibrancy and pure black</td>
+  </tr>
+</table>
+
+The **Appearance** card on the Logger tab sets **System, Light or Dark**, one of seven palettes (**Agentic**, **Ignition**, **Ocean**, **Electric**, **Racing**, **Graphite**, or **Wallpaper** for Material You), **Vibrant colours** and **Pure black** in dark mode. Each palette is generated from three seed colours, and accents are adjusted until text on them meets WCAG AA contrast, so every palette stays readable in light and dark.
 
 ## How it works
 
@@ -92,7 +168,8 @@ flowchart TB
 1. **Install** the APK from the [latest release](https://github.com/Shreyamkmr/AgenticCar/releases/latest) (allow installs from your browser or file manager).
 2. **Pair** your ELM327 adapter in Android's Bluetooth settings (PIN is usually `1234` or `0000`).
 3. **Open Agentic Car**, grant *Nearby devices* and *Notifications* (and optionally *Location* for the GPS track), pick the adapter and tap **Connect**. With the ignition on, it discovers the car's signals and starts a trip when the engine runs.
-4. **No car handy?** Pick **Simulated ELM327** in the adapter list instead.
+4. **Watch it live** on the **Board** tab: pick a template from the layout menu at the top, or tap **Edit** and build your own.
+5. **No car handy?** Turn on **Developer mode** at the bottom of the Logger tab and pick **Simulated ELM327** in the adapter list.
 
 The app records in a foreground service, so you can lock the phone and drive.
 
@@ -148,7 +225,12 @@ The server also sends instructions describing the data model and a suggested wor
 
 PIDs the car advertises but never answers are dropped after five attempts. Undecodable PIDs are stored raw as `pid_xx_raw`.
 
-On CAN the app addresses the engine ECU directly (`ATSH7E0`, or the 29-bit equivalent), so replies from other modules cannot interleave into corrupt values, and a spike filter drops single readings that jump implausibly (for example RPM 931 → 4366 → 1274 at a steady speed) unless the next reading confirms them.
+Cheap adapters over Bluetooth lose bytes, so the data is defended in layers:
+
+- **One ECU at a time.** On CAN the app addresses the engine ECU directly (`ATSH7E0`, or the 29-bit equivalent), so replies from other modules cannot interleave into corrupt values.
+- **Broken replies are dropped.** A multi-frame reply with a missing, out-of-order or short frame is discarded instead of being decoded with shifted bytes.
+- **Spikes need confirming.** A reading that jumps further than its signal allows between two polls (800 rpm, 30 km/h, …) is held back; it is kept only if the next reading follows it, so blips such as 746 → 2350 → 746 rpm at idle never reach storage. Physically impossible values (over 8000 rpm, for example) are always dropped.
+- **Discovery retries.** Lost bitmap or batch-probe replies are retried, so one dropped reply cannot shrink a session's signal set.
 
 **Fuel used** comes from the fuel-rate PID when the car has one, otherwise from the MAF sensor, otherwise from a speed-density estimate (`fuel_rate_est`: manifold pressure, intake temperature, RPM and the engine size you enter in the app's **Vehicle** card; petrol, about ±15 %).
 
@@ -195,7 +277,7 @@ Requirements: Android Studio (or JDK 17+) and the Android SDK (compile SDK 37).
 git clone https://github.com/Shreyamkmr/AgenticCar.git
 cd AgenticCar
 ./gradlew assembleDebug        # gradlew.bat on Windows
-./gradlew testDebugUnitTest    # parser, codec and simulator tests
+./gradlew testDebugUnitTest    # parser, filter, codec, board, palette and simulator tests
 ```
 
 ### The bundled cloudflared
@@ -208,32 +290,47 @@ powershell -ExecutionPolicy Bypass -File tools\cloudflared\build.ps1
 
 The script downloads the official [cloudflared](https://github.com/cloudflare/cloudflared) release source and a checksum-verified Go toolchain, adds one file ([`android_dns.go`](tools/cloudflared/android_dns.go)) and cross-compiles a static `linux/arm64` binary in about a minute. The patch is needed because Android has no `/etc/resolv.conf`: it routes all DNS lookups to the resolvers the app passes in. CA certificates are found through `SSL_CERT_DIR`, with no code change. Without the binary the app still builds and works; only public access is unavailable.
 
+### Export a trip to Google Earth
+
+[`tools/export/trip_to_kml.ps1`](tools/export/trip_to_kml.ps1) turns a trip from a copy of the phone's database into a KML file: the route coloured by speed, an engine-load "curtain" in 3D, an elevation profile, timestamped replay points and markers for top speed and peak load.
+
+```powershell
+adb exec-out run-as com.example.agenticcar cat databases/telemetry.db > telemetry.db   # also -wal and -shm
+powershell -ExecutionPolicy Bypass -File tools\export\trip_to_kml.ps1 -Database telemetry.db -Out trip.kml
+```
+
 ## Project layout
 
 ```
 app/src/main/java/com/example/agenticcar/
 ├── data/
 │   ├── db/            Room entities, DAO, database (WAL)
-│   ├── recording/     TelemetryRecorder, BlockCodec, TelemetryWriter
+│   ├── recording/     TelemetryRecorder, BlockCodec, SpikeFilter, TelemetryWriter
+│   ├── location/      GPS sources and road-grade estimator
 │   └── network/       Wi-Fi and hotspot address monitor
 ├── protocol/
 │   ├── obd/           PID catalog, ELM327 parser (multi-frame, DTC, VIN)
 │   └── mcp/           MCP tools, queries, server, tokens, Cloudflare tunnel
 ├── service/           Foreground service, ObdSession poller, Bluetooth and simulated links
-└── ui/dashboard/      Compose dashboard and Public access screen
+└── ui/
+    ├── dashboard/     Logger tab and Public access screen
+    ├── board/         Board grid, tiles, route map, templates and Analysis
+    └── theme/         Palettes, appearance settings and typography
 tools/cloudflared/     Android DNS patch and build script for the bundled tunnel
+tools/export/          Trip to Google Earth KML exporter
 ```
 
 Stack: Kotlin 2.4 · Jetpack Compose (Material 3) · Hilt · Room · Coroutines/Flow · Ktor 3 + Netty · [MCP Kotlin SDK](https://github.com/modelcontextprotocol/kotlin-sdk) · cloudflared.
 
 ## Limitations and roadmap
 
-- Tested end to end with the built-in simulator; real-car results depend on the vehicle and adapter. Cheap ELM327 clones vary in what they support.
+- Tested on a 2014 Peugeot 208 1.2 (CAN 11-bit, 500 kbit/s) with a generic ELM327 clone, and end to end with the built-in simulator. Results depend on the vehicle and adapter; cheap clones vary in what they support and in how many bytes they lose.
 - Mode 01 live data, Mode 03/07/0A trouble codes and Mode 09 VIN only; freeze-frame (Mode 02) and manufacturer-specific PIDs are not read yet.
 - Quick-tunnel URLs change on every start; use a named tunnel for a fixed URL.
 - The bundled tunnel binary is arm64-only.
 - Road grade comes from GPS altitude, so short or gentle slopes are smoothed out; a phone barometer would sharpen it.
-- Ideas: freeze-frame capture, CSV/Parquet export, data retention settings, barometer-assisted altitude.
+- Route tiles draw the track without a street map underneath, by design (no network or API key).
+- Ideas: freeze-frame capture, CSV/Parquet export, data retention settings, barometer-assisted altitude, an optional OpenStreetMap background.
 
 Issues and pull requests are welcome.
 
