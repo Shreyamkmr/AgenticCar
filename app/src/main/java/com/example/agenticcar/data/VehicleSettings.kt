@@ -13,7 +13,8 @@ import javax.inject.Singleton
 class VehicleSettings @Inject constructor(@ApplicationContext context: Context) {
     private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    private val _engineDisplacementL = MutableStateFlow(prefs.getFloat(KEY_DISPLACEMENT, 0f).takeIf { it > 0f }?.toDouble())
+    // Via the float's shortest decimal text: 1.2f.toDouble() would be 1.2000000476837158.
+    private val _engineDisplacementL = MutableStateFlow(prefs.getFloat(KEY_DISPLACEMENT, 0f).takeIf { it > 0f }?.toString()?.toDouble())
 
     /** Engine size in litres, used for the speed-density fuel estimate; null when not set. */
     val engineDisplacementL: StateFlow<Double?> = _engineDisplacementL.asStateFlow()
