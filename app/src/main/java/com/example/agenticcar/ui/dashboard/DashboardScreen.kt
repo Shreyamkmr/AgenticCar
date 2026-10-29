@@ -21,6 +21,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import com.example.agenticcar.ui.theme.AppearanceCard
+import com.example.agenticcar.ui.theme.AppearanceViewModel
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AssistChip
@@ -123,6 +128,11 @@ fun DashboardRoute(
         },
         onOpenPublicAccess = { showPublicAccess = true },
         modifier = modifier,
+        appearanceSlot = {
+            val appearanceViewModel: AppearanceViewModel = hiltViewModel()
+            val appearance by appearanceViewModel.appearance.collectAsStateWithLifecycle()
+            AppearanceCard(appearance = appearance, onChange = appearanceViewModel::update)
+        },
     )
 }
 
@@ -134,6 +144,7 @@ fun DashboardScreen(
     onOpenSettings: () -> Unit,
     onOpenPublicAccess: () -> Unit,
     modifier: Modifier = Modifier,
+    appearanceSlot: @Composable () -> Unit = {},
 ) {
     Scaffold(modifier = modifier.fillMaxSize()) { innerPadding ->
         Column(
@@ -144,7 +155,7 @@ fun DashboardScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(stringResource(R.string.dashboard_title), style = MaterialTheme.typography.headlineSmall)
+            HeroHeader(state = state)
 
             if (!state.permissionsGranted) {
                 PermissionCard(onRequestPermissions = onRequestPermissions, onOpenSettings = onOpenSettings)
@@ -162,6 +173,43 @@ fun DashboardScreen(
             McpCard(state = state, onEvent = onEvent, onOpenPublicAccess = onOpenPublicAccess)
             VehicleCard(displacementL = state.engineDisplacementL, onSave = { onEvent(DashboardEvent.EngineSizeSaved(it)) })
             if (state.liveSignals.isNotEmpty()) LiveSignalsCard(signals = state.liveSignals)
+            appearanceSlot()
+            DeveloperCard(enabled = state.developerMode, onToggle = { onEvent(DashboardEvent.DeveloperModeToggled(it)) })
+        }
+    }
+}
+
+/** Brand banner: the app name on a primary-to-tertiary gradient, with the link and trip status. */
+@Composable
+private fun HeroHeader(state: DashboardUiState, modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    val brush = Brush.linearGradient(listOf(scheme.primary, scheme.secondary, scheme.tertiary))
+    Box(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(24.dp))
+            .background(brush)
+            .padding(horizontal = 20.dp, vertical = 18.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(stringResource(R.string.app_name), style = MaterialTheme.typography.headlineMedium, color = scheme.onPrimary)
+            Text(state.obd.label(), style = MaterialTheme.typography.bodyMedium, color = scheme.onPrimary.copy(alpha = 0.85f))
+            val tripActive = state.metrics.tripActive
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(50))
+                    .background(scheme.onPrimary.copy(alpha = 0.16f))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                StatusDot(color = if (tripActive) Color(0xFF2EE6A8) else scheme.onPrimary.copy(alpha = 0.5f))
+                Text(
+                    stringResource(if (tripActive) R.string.trip_active else R.string.trip_inactive),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = scheme.onPrimary,
+                )
+            }
         }
     }
 }
@@ -447,6 +495,23 @@ private fun VehicleCard(displacementL: Double?, onSave: (Double?) -> Unit, modif
                     enabled = valid && (if (text.isBlank()) null else parsed) != displacementL,
                 ) { Text(stringResource(R.string.action_save)) }
             }
+        }
+    }
+}
+
+@Composable
+private fun DeveloperCard(enabled: Boolean, onToggle: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+    Card(modifier = modifier.fillMaxWidth()) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(stringResource(R.string.developer_title), style = MaterialTheme.typography.titleMedium)
+                Text(
+                    stringResource(R.string.developer_help),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(checked = enabled, onCheckedChange = onToggle)
         }
     }
 }

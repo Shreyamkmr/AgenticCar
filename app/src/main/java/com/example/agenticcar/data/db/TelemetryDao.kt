@@ -37,6 +37,10 @@ interface TelemetryDao {
     @Query("SELECT COUNT(*) FROM trips")
     suspend fun tripCount(): Int
 
+    /** Trips with any part inside `[fromMs, toMs)` (epoch ms), oldest first. */
+    @Query("SELECT * FROM trips WHERE id < :toMs AND COALESCE(ended_at, updated_at) >= :fromMs ORDER BY id")
+    suspend fun tripsOverlapping(fromMs: Long, toMs: Long): List<TripEntity>
+
     // endregion
 
     // region Signals

@@ -4,7 +4,8 @@ import android.bluetooth.BluetoothManager
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.agenticcar.BuildConfig
+import com.example.agenticcar.data.DeveloperSettings
+import com.example.agenticcar.data.ObdConnectionState
 import com.example.agenticcar.data.TelemetryState
 import com.example.agenticcar.data.network.WifiAddressMonitor
 import com.example.agenticcar.data.VehicleSettings
@@ -35,12 +36,14 @@ class DashboardViewModel @Inject constructor(
     private val mcpTokens: McpTokenStore,
     tunnel: CloudflareTunnel,
     private val vehicle: VehicleSettings,
+    private val developer: DeveloperSettings,
 ) : ViewModel() {
 
     private data class LocalState(
         val permissionsGranted: Boolean = false,
         val locationGranted: Boolean = false,
-        val devices: List<BondedDevice> = emptyList(),
+        val bonded: List<BondedDevice> = emptyList(),
+        /** The user's pick; null lets [pickDevice] choose. */
         val selectedDeviceAddress: String? = null,
     )
 
@@ -57,19 +60,25 @@ class DashboardViewModel @Inject constructor(
     }
 
     val state: StateFlow<DashboardUiState> =
-        combine(_local, telemetry, wifiMonitor.ipv4, mcpTokens.access, tunnel.state, vehicle.engineDisplacementL) { values ->
+        combine(
+            _local, telemetry, wifiMonitor.ipv4, mcpTokens.access, tunnel.state, vehicle.engineDisplacementL, developer.enabled,
+        ) { values ->
             val local = values[0] as LocalState
             val t = values[1] as DashboardUiState
             val ip = values[2] as String?
             val access = values[3] as McpAccess
             val tunnelState = values[4] as TunnelState
             val displacement = values[5] as Double?
+            val developerMode = values[6] as Boolean
+            // The simulated adapter is a developer tool: offered only while developer mode is on.
+            val devices = if (developerMode) listOf(SIMULATED_DEVICE) + local.bonded else local.bonded
             t.copy(
                 engineDisplacementL = displacement,
+                developerMode = developerMode,
                 permissionsGranted = local.permissionsGranted,
                 locationGranted = local.locationGranted,
-                devices = local.devices,
-                selectedDeviceAddress = local.selectedDeviceAddress,
+                devices = devices,
+                selectedDeviceAddress = pickDevice(local.selectedDeviceAddress, devices),
                 wifiIpv4 = ip,
                 mcpAccess = access,
                 tunnel = tunnelState,
@@ -80,7 +89,7 @@ class DashboardViewModel @Inject constructor(
         when (event) {
             is DashboardEvent.PermissionsChanged -> onPermissionsChanged(event.granted, event.locationGranted)
             is DashboardEvent.DeviceSelected -> _local.update { it.copy(selectedDeviceAddress = event.address) }
-            DashboardEvent.ConnectClicked -> _local.value.selectedDeviceAddress?.let(serviceLauncher::connect)
+            DashboardEvent.ConnectClicked -> state.value.selectedDeviceAddress?.let(serviceLauncher::connect)
             DashboardEvent.DisconnectClicked -> serviceLauncher.disconnect()
             is DashboardEvent.McpToggled -> serviceLauncher.setMcpEnabled(event.enabled)
             DashboardEvent.McpNewTokenClicked -> {
@@ -94,26 +103,36 @@ class DashboardViewModel @Inject constructor(
             }
             is DashboardEvent.TunnelConfigSaved -> mcpTokens.setTunnel(event.config)
             is DashboardEvent.EngineSizeSaved -> vehicle.setEngineDisplacementL(event.litres)
+            is DashboardEvent.DeveloperModeToggled -> {
+                developer.setEnabled(event.enabled)
+                if (!event.enabled) {
+                    // Leaving developer mode stops a running simulation rather than leaving it logging fake trips.
+                    val name = when (val obd = state.value.obd) {
+                        is ObdConnectionState.Connecting -> obd.deviceName
+                        is ObdConnectionState.Initializing -> obd.deviceName
+                        is ObdConnectionState.Connected -> obd.deviceName
+                        else -> null
+                    }
+                    if (name == SimulatedElm327Link.DEVICE_NAME) serviceLauncher.disconnect()
+                    if (_local.value.selectedDeviceAddress == SimulatedElm327Link.ADDRESS) {
+                        _local.update { it.copy(selectedDeviceAddress = null) }
+                    }
+                }
+            }
         }
     }
 
     private fun onPermissionsChanged(granted: Boolean, locationGranted: Boolean) {
         val adapter = appContext.getSystemService(BluetoothManager::class.java)?.adapter
         val bonded = if (granted) ObdBluetoothManager.bondedDevices(appContext, adapter) else emptyList()
-        // Debug builds offer an in-app ELM327 so the full pipeline can be tested without a car.
-        val devices = if (BuildConfig.DEBUG) listOf(SIMULATED_DEVICE) + bonded else bonded
-        _local.update { current ->
-            current.copy(
-                permissionsGranted = granted,
-                locationGranted = locationGranted,
-                devices = devices,
-                // Keep the user's pick; otherwise preselect something that looks like an ELM327.
-                selectedDeviceAddress = current.selectedDeviceAddress?.takeIf { addr -> devices.any { it.address == addr } }
-                    ?: devices.firstOrNull { d -> OBD_NAME_HINTS.any { d.name.contains(it, ignoreCase = true) } }?.address
-                    ?: devices.firstOrNull()?.address,
-            )
-        }
+        _local.update { it.copy(permissionsGranted = granted, locationGranted = locationGranted, bonded = bonded) }
     }
+
+    /** Keeps the user's pick while it is offered; otherwise preselects something that looks like an ELM327. */
+    private fun pickDevice(chosen: String?, devices: List<BondedDevice>): String? =
+        chosen?.takeIf { addr -> devices.any { it.address == addr } }
+            ?: devices.firstOrNull { d -> OBD_NAME_HINTS.any { d.name.contains(it, ignoreCase = true) } }?.address
+            ?: devices.firstOrNull()?.address
 
     private companion object {
         val SIMULATED_DEVICE = BondedDevice(name = SimulatedElm327Link.DEVICE_NAME, address = SimulatedElm327Link.ADDRESS)

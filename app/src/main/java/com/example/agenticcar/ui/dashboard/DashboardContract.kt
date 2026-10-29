@@ -25,6 +25,8 @@ data class DashboardUiState(
     val tunnel: TunnelState = TunnelState.Off,
     /** Engine size for fuel estimates on cars without MAF or fuel-rate PIDs. */
     val engineDisplacementL: Double? = null,
+    /** Developer options: offers the simulated adapter. */
+    val developerMode: Boolean = false,
 ) {
     val mcpEnabled: Boolean get() = mcp !is McpServerState.Stopped
     val obdActive: Boolean get() = obd !is ObdConnectionState.Disconnected
@@ -40,4 +42,5 @@ sealed interface DashboardEvent {
     data class PublicAccessToggled(val enabled: Boolean) : DashboardEvent
     data class TunnelConfigSaved(val config: TunnelConfig) : DashboardEvent
     data class EngineSizeSaved(val litres: Double?) : DashboardEvent
+    data class DeveloperModeToggled(val enabled: Boolean) : DashboardEvent
 }

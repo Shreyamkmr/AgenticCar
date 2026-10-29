@@ -55,6 +55,7 @@ object PidCatalog {
     const val ID_TIMING_ADVANCE = 0x0E
     const val ID_INTAKE_AIR_TEMP = 0x0F
     const val ID_MAF = 0x10
+    const val ID_THROTTLE = 0x11
     const val ID_MODULE_VOLTAGE = 0x42
     const val ID_FUEL_TYPE = 0x51
     const val ID_FUEL_RATE = 0x5E
@@ -200,6 +201,9 @@ object PidCatalog {
     private val signalsById: Map<Int, SignalDef> =
         (defs.flatMap { it.signals } + adapterVoltage + gpsSignals + derivedSignals).associateBy { it.id }
     private val signalsByKey: Map<String, SignalDef> = signalsById.values.associateBy { it.key }
+
+    /** Every decodable signal (ECU, adapter, GPS and derived), in id order. */
+    val knownSignals: List<SignalDef> = signalsById.values.sortedBy { it.id }
     private val rawKey = Regex("pid_([0-9a-f]{2})_raw")
 
     fun signal(id: Int): SignalDef? =
