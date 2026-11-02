@@ -11,6 +11,8 @@
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/github/license/Shreyamkmr/AgenticCar?style=flat-square"></a>
 </p>
 
+[![M8ven Score](https://m8ven.ai/badge/mcp/shreyamkmr-agenticcar-7qsog0?v=a8c19894d7b2a43793ca4c323dea1be1)](https://m8ven.ai/mcp/shreyamkmr-agenticcar-7qsog0?s=readme)
+
 **Agentic Car** turns an Android phone and a cheap ELM327 Bluetooth adapter into a full-fidelity car data logger with dashboards you design yourself, then lets Claude read it. While you drive, it records **every signal your car's ECU supports**, compressed to about a byte per reading. Lay out live dials, trends and a GPS route map however you like, replay any trip through the same tiles, and switch on the phone's built-in **MCP server** to ask Claude about your drives.
 
 <p align="center">
